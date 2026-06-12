@@ -7,6 +7,12 @@ use std::{
     str::FromStr,
 };
 
+fn parse_byte_to_u16(buf: &Vec<u8>, start_byte: usize, end_byte: usize) -> u16 {
+    let byte_slice: [u8; 2] = buf[start_byte..end_byte].try_into().unwrap();
+
+    u16::from_be_bytes(byte_slice)
+}
+
 #[derive(Debug)]
 enum Commands {
     DbInfo,
@@ -52,13 +58,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Commands::DbInfo => {
             let cwd = current_dir().unwrap();
             let filepath = format!("{}/{filename}", cwd.display());
-            let mut buf = [0; 100];
-            File::open(filepath)?.read(&mut buf[..])?;
 
-            let byte_slice: [u8; 2] = buf[16..18].try_into().unwrap();
+            let mut buf = Vec::new();
+            let _total_page_size = File::open(filepath)?.read_to_end(&mut buf)?;
 
-            let page_size = u16::from_be_bytes(byte_slice);
+            let page_size = parse_byte_to_u16(&buf, 16, 18);
+            let cell_count = parse_byte_to_u16(&buf, 103, 105);
             println!("database page size: {}", page_size);
+            println!("number of tables: {}", cell_count);
         }
     }
 
