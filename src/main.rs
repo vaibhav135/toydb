@@ -1,18 +1,18 @@
 use std::{
-    env::{self, current_dir},
-    fs::File,
-    io::Read,
+    env::{self},
     process,
+    str::FromStr,
 };
+
+use crate::{commands::Commands, file::DBFile};
 
 mod cell;
 mod commands;
 mod custom_error;
-mod fileformat;
+mod file;
+mod page;
 mod recordformat;
 mod utils;
-
-use commands::process_cmd;
 
 fn main() {
     let res = run();
@@ -24,20 +24,19 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args().collect();
-    if args.len() < 2 {
+    // This is temporary till we implement the shell
+    if args.len() < 3 {
         return Err(Box::from("filename and command not found"));
     }
 
-    let filename = &args[1];
-    let command = &args[2];
+    // These are provided when we start the db (either with filename or with command)
+    let filename = args.get(1).unwrap().to_string();
+    let command = Commands::from_str(args.get(2).unwrap())?;
 
-    let cwd = current_dir()?;
-    let filepath = format!("{}/{filename}", cwd.display());
+    let mut dbfile = DBFile::new();
+    dbfile.init(filename)?;
 
-    let mut buf: Vec<u8> = Vec::new();
-    let total_page_size = File::open(filepath)?.read_to_end(&mut buf)?;
-
-    process_cmd(command, buf.as_slice(), total_page_size)?;
+    Commands::process_cmd(command, &mut dbfile)?;
 
     Ok(())
 }

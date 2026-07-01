@@ -1,4 +1,4 @@
-use crate::{fileformat::enums::BTreePageHeaderFormat, recordformat::RecordFormat};
+use crate::{file::enums::BTreePageHeaderFormat, recordformat::RecordFormat};
 
 pub enum CellOperation {
     PageNumLeftChild,
@@ -49,8 +49,9 @@ impl CellOperation {
 
 #[derive(Debug)]
 pub struct Cell {
-    page_num_of_left_child: Option<u32>,
-    payload_size: Option<u64>,
-    rowid: Option<u64>,
-    payload: RecordFormat,
+    pub page_num_of_left_child: Option<u32>,
+    pub payload_size: Option<u64>,
+    pub rowid: Option<u64>,
+    pub payload: Option<RecordFormat>,
+    pub first_overflow_pgno: Option<u32>,
 }

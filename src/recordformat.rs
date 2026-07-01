@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::{
-    fileformat::enums::TxtEncoding,
+    file::enums::TxtEncoding,
     utils::{
         convert_u8_to_u16_be, convert_u8_to_u16_le, get_parse_varint_to_int, parse_be_byte_to_int,
         parse_varint_to_int,
@@ -59,7 +59,6 @@ impl RecordFormat {
     }
 
     fn get_content_size_for_stype(&self, stype: u64) -> usize {
-        println!("serial type: {stype}");
         match stype {
             5 => 6,
             6 | 7 => 8,
@@ -90,8 +89,6 @@ impl RecordFormat {
         // 1st byte of header is the size of the header itself.
         let mut header_size = 0;
         let header_varint_size = parse_varint_to_int(&buf[cur_cell_offset..], &mut header_size);
-        println!("header size: {header_size}");
-        println!("header varint size: {header_varint_size}");
 
         let mut header_idx = header_size - 1;
         cur_cell_offset += header_varint_size;
@@ -133,6 +130,7 @@ impl RecordFormat {
                     let val = f64::from_be_bytes(buf_slice.try_into()?);
                     RecordDataType::FLOAT(val)
                 }
+                10..=11 => RecordDataType::NULL,
                 8 | 9 | 12 | 13 => RecordDataType::INT(0),
                 _ => {
                     if stype > 12 && (stype % 2) == 0 {
@@ -141,7 +139,7 @@ impl RecordFormat {
                     } else {
                         let encoding_type = get_enconding_type(buf);
                         let utf_content = self.parse_string_payload(buf_slice, encoding_type)?;
-                        println!("Content: {}", utf_content);
+                        // println!("Content: {}", utf_content);
                         RecordDataType::STR(utf_content)
                     }
                 }
@@ -164,7 +162,7 @@ pub fn get_enconding_type(buf: &[u8]) -> TxtEncoding {
     // text encoding is a  4-byte BE int at offset 56 -> https://www.sqlite.org/fileformat2.html#enc
     let encoding_val = parse_be_byte_to_int::<u32>(buf, 56);
     let encoding_type = <u32 as Into<TxtEncoding>>::into(encoding_val);
-    println!("Encoding Val: {}", encoding_val);
-    println!("Encoding Type: {:?}", encoding_type);
+    // println!("Encoding Val: {}", encoding_val);
+    // println!("Encoding Type: {:?}", encoding_type);
     encoding_type
 }

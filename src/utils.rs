@@ -42,6 +42,15 @@ impl FromBe for u32 {
     }
 }
 
+impl FromBe for u64 {
+    const N: usize = std::mem::size_of::<u64>();
+
+    fn be_from_slice(buf: &[u8]) -> Self {
+        let byte_slice: [u8; <u64 as FromBe>::N] = buf.try_into().unwrap();
+        Self::from_be_bytes(byte_slice)
+    }
+}
+
 pub fn parse_be_byte_to_int<T: FromBe>(buf: &[u8], start_byte: usize) -> T {
     T::be_from_slice(&buf[start_byte..start_byte + T::N])
 }
