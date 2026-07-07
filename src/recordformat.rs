@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, iter::Enumerate};
 
 use crate::{
     file::enums::TxtEncoding,
@@ -19,9 +19,19 @@ pub enum RecordDataType {
 
 #[derive(Debug)]
 pub struct RecordFormat {
-    header_size: u64,
-    num_of_cols: u16,
-    rows: Vec<(u64, usize, RecordDataType)>, // Vec of (serial type , content size, data)
+    pub header_size: u64,
+    pub num_of_cols: u16,
+    pub rows: Vec<Row>,
+}
+
+#[derive(Debug)]
+pub struct Row {
+    // This will have serial type, content size
+    pub header: (u64, usize),
+    // Reason to make it optional is that, if the content overflows then the current cell row might
+    // only has 1 datatype of even a part of that data. In that case we have the overflow page
+    // which holds the rest of the data and is a linked list btw.
+    pub content: RecordDataType,
 }
 
 // Record contains header and body in this order -> [header, body]
@@ -37,7 +47,7 @@ impl RecordFormat {
     fn parse_string_payload(
         &self,
         buf: &[u8],
-        encoding_type: TxtEncoding,
+        encoding_type: &TxtEncoding,
     ) -> Result<String, Box<dyn Error>> {
         let content;
 
@@ -84,85 +94,161 @@ impl RecordFormat {
     pub fn set_records(
         &mut self,
         buf: &[u8],
-        mut cur_cell_offset: usize,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
+        encoding_type: &TxtEncoding,
+        // mut cur_cell_offset: usize,
+        cont_payload_idx: &mut u32,
+        cont_remain_bytes: &mut u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 1st byte of header is the size of the header itself.
         let mut header_size = 0;
-        let header_varint_size = parse_varint_to_int(&buf[cur_cell_offset..], &mut header_size);
+        parse_varint_to_int(&buf, &mut header_size);
 
-        let mut header_idx = header_size - 1;
-        cur_cell_offset += header_varint_size;
+        let mut rows = vec![];
 
-        // (u64, usize, RecordFormat) = (serial type, content size, content)
-        let mut payload_data: Vec<(u64, usize, RecordDataType)> = Vec::new();
+        // (serial type,   content size)
+        let mut payload_header: Vec<(u64, usize)> = vec![];
 
-        let mut content_start_idx = cur_cell_offset + (header_size as usize) - 1;
-        let mut content_end_idx = cur_cell_offset + (header_size as usize) - 1;
+        let mut stype_idx: usize = 1;
 
-        while header_idx > 0 {
+        loop {
+            if stype_idx >= (header_size - 1) as usize {
+                break;
+            }
+
             // stype = serial type.
             let mut stype = 0;
 
             // Usually the serial type size will be 1 varint but large strings and
             // BLOB are the only exception which might extend to more that 1 byte
             // varints.
-            let stype_varint_size = parse_varint_to_int(&buf[cur_cell_offset..], &mut stype);
+            let stype_varint_size = parse_varint_to_int(&buf[stype_idx..], &mut stype);
 
-            header_idx -= stype_varint_size as u64;
-
-            // Usually the serial type varint size are 1 but only in case of BLOB or string they
-            // might actually exceed.
-            cur_cell_offset += stype_varint_size;
+            stype_idx += stype_varint_size;
+            self.num_of_cols += 1;
 
             let content_size = self.get_content_size_for_stype(stype);
 
-            content_end_idx += content_size;
-            let buf_slice = &buf[content_start_idx..content_end_idx];
-
-            let content: RecordDataType = match stype {
-                0 => RecordDataType::NULL,
-                1..=6 => {
-                    let val = get_parse_varint_to_int(buf_slice);
-
-                    RecordDataType::INT(val)
-                }
-                7 => {
-                    let val = f64::from_be_bytes(buf_slice.try_into()?);
-                    RecordDataType::FLOAT(val)
-                }
-                10..=11 => RecordDataType::NULL,
-                8 | 9 | 12 | 13 => RecordDataType::INT(0),
-                _ => {
-                    if stype > 12 && (stype % 2) == 0 {
-                        let blob = Box::from(buf_slice);
-                        RecordDataType::BLOB(blob)
-                    } else {
-                        let encoding_type = get_enconding_type(buf);
-                        let utf_content = self.parse_string_payload(buf_slice, encoding_type)?;
-                        // println!("Content: {}", utf_content);
-                        RecordDataType::STR(utf_content)
-                    }
-                }
-            };
-
-            payload_data.push((stype, content_size, content));
-
-            content_start_idx += content_size;
+            payload_header.push((stype, content_size));
+            rows.push(Row {
+                header: (stype, content_size),
+                content: RecordDataType::NULL,
+            })
         }
 
         self.header_size = header_size;
-        self.num_of_cols = (header_size - 1) as u16;
-        self.rows = payload_data;
 
-        Ok(cur_cell_offset)
+        let mut content_rows: Vec<RecordDataType> = vec![];
+
+        self.set_content(
+            buf,
+            encoding_type,
+            cont_payload_idx,
+            payload_header,
+            &mut content_rows,
+            cont_remain_bytes,
+        )?;
+
+        for (idx, content) in content_rows.into_iter().enumerate() {
+            rows[idx].content = content;
+        }
+
+        self.rows = rows;
+
+        Ok(())
+    }
+
+    pub fn set_content(
+        &mut self,
+        buf: &[u8],
+        encoding_type: &TxtEncoding,
+        cont_payload_idx: &mut u32,
+        payload_header: Vec<(u64, usize)>,
+        content_rows: &mut Vec<RecordDataType>,
+        cont_remain_bytes: &mut u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let buf_len = buf.len();
+        let mut content_start_idx = self.header_size as usize;
+        let mut content_end_idx = self.header_size as usize;
+
+        for (idx, header) in payload_header.iter().enumerate() {
+            let content_size = header.1;
+            let stype = header.0;
+
+            if content_end_idx >= buf_len {
+                break;
+            } else if (content_size + content_end_idx) > buf_len {
+                content_end_idx = buf_len;
+
+                let temp_cont_remain_bytes =
+                    (content_size - (content_end_idx - content_start_idx)) as u32;
+
+                if temp_cont_remain_bytes > *cont_remain_bytes {
+                    *cont_remain_bytes = temp_cont_remain_bytes - *cont_remain_bytes;
+                } else {
+                    *cont_remain_bytes -= temp_cont_remain_bytes;
+                }
+            } else {
+                content_end_idx += content_size;
+            }
+
+            let buf_slice = &buf[content_start_idx..content_end_idx];
+
+            let content = self.get_content(buf_slice, stype, encoding_type)?;
+
+            content_start_idx = content_end_idx;
+
+            content_rows.push(content);
+            *cont_payload_idx = idx as u32;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_content(
+        &self,
+        buf: &[u8],
+        stype: u64,
+        encoding_type: &TxtEncoding,
+    ) -> Result<RecordDataType, Box<dyn std::error::Error>> {
+        let content = match stype {
+            0 => RecordDataType::NULL,
+            1..=6 => {
+                let val = get_parse_varint_to_int(buf);
+
+                RecordDataType::INT(val)
+            }
+            7 => {
+                let val = f64::from_be_bytes(buf.try_into()?);
+                RecordDataType::FLOAT(val)
+            }
+            10..=11 => RecordDataType::NULL,
+            8 | 9 | 12 | 13 => RecordDataType::INT(0),
+            _ => {
+                if stype > 12 && (stype % 2) == 0 {
+                    let blob = Box::from(buf);
+                    RecordDataType::BLOB(blob)
+                } else {
+                    let utf_content = self.parse_string_payload(buf, encoding_type)?;
+                    RecordDataType::STR(utf_content)
+                }
+            }
+        };
+
+        Ok(content)
+    }
+
+    pub fn get_content_len(content: &RecordDataType) -> usize {
+        match content {
+            RecordDataType::STR(data) => data.bytes().len(),
+            // BLOB is already in bytes.
+            RecordDataType::BLOB(data) => data.len(),
+            RecordDataType::FLOAT(_) | RecordDataType::INT(_) => 8,
+            _ => 0,
+        }
     }
 }
 
-pub fn get_enconding_type(buf: &[u8]) -> TxtEncoding {
-    // text encoding is a  4-byte BE int at offset 56 -> https://www.sqlite.org/fileformat2.html#enc
-    let encoding_val = parse_be_byte_to_int::<u32>(buf, 56);
+pub fn get_enconding_type(encoding_val: u32) -> TxtEncoding {
     let encoding_type = <u32 as Into<TxtEncoding>>::into(encoding_val);
-    // println!("Encoding Val: {}", encoding_val);
-    // println!("Encoding Type: {:?}", encoding_type);
     encoding_type
 }

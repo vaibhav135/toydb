@@ -1,12 +1,6 @@
-use super::file::enums::BTreePageHeaderFormat;
-use crate::{
-    cell::CellOperation,
-    file::{DBFile, DBHeader},
-    recordformat::RecordFormat,
-    utils::{parse_be_byte_to_int, parse_varint_to_int},
-};
+use std::{fmt, str::FromStr};
 
-use std::{cell, fmt, io::Bytes, str::FromStr};
+use crate::file::DBFile;
 
 #[derive(Debug)]
 pub enum Commands {
@@ -45,28 +39,18 @@ impl Commands {
         if let Some(db_header) = &dbfile.db_header {
             let pages = &dbfile.pages;
             match command {
-                Commands::DbInfo => {
-                    if let Some(page_header) = &pages[0].page_header {
-                        println!("database page size: {}", db_header.page_size);
-                        println!("number of tables: {}", page_header.num_of_cells);
+                Commands::DbInfo => match &pages[0] {
+                    crate::page::PageType::Btree(page) => {
+                        if let Some(page_header) = &page.page_header {
+                            println!("database page size: {}", db_header.page_size);
+                            println!("number of tables: {}", page_header.num_of_cells);
+                        }
                     }
-                }
-                Commands::Tables => {
-
-                    /*
-                     *   U : usable size of a database page
-                     *       usable page = Total page size - reserved space at the end of each page
-                     *
-                     *   P: payload size
-                     *
-                     *   X: maximum amount of payload that be stored directly on the b-tree page before
-                     *      spilling onto an overflow page
-                     *
-                     *   M : minimum amount of payload that must be stored on the btree page before spilling
-                     *       allowed
-                     *
-                     */
-                }
+                    _ => {
+                        println!("Overflow page")
+                    }
+                },
+                Commands::Tables => {}
             }
         }
 
