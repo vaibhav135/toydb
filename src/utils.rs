@@ -8,6 +8,12 @@
 
 // BIG ENDIAN
 
+use std::{
+    error::Error,
+    fs::File,
+    io::{Read, Seek},
+};
+
 pub trait FromBe {
     // N represents size in byte.
     const N: usize;
@@ -137,12 +143,12 @@ pub fn parse_varint_to_int(buf: &[u8], _result: &mut u64) -> usize {
     idx + 1
 }
 
-pub fn get_parse_varint_to_int(buf: &[u8]) -> u64 {
-    let mut result: u64 = 0;
-    let _ = parse_varint_to_int(buf, &mut result);
-
-    result
-}
+// pub fn get_parse_varint_to_int(buf: &[u8]) -> u64 {
+//     let mut result: u64 = 0;
+//     let _ = parse_varint_to_int(buf, &mut result);
+//
+//     result
+// }
 
 pub fn convert_u8_to_u16_le(buf: &[u8]) -> Box<[u16]> {
     let res = buf
@@ -156,4 +162,19 @@ pub fn convert_u8_to_u16_be(buf: &[u8]) -> Box<[u16]> {
         .chunks(2)
         .map(|chunk| u16::from_be_bytes(chunk.try_into().unwrap()));
     res.collect()
+}
+
+pub fn read_specific_bytes(
+    filepath: &String,
+    start_byte: u16,
+    pg_size: u16,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut file = File::open(filepath)?;
+
+    let mut buffer = vec![0u8; pg_size as usize];
+    file.seek(std::io::SeekFrom::Start((start_byte) as u64))?;
+
+    file.read(&mut buffer)?;
+
+    Ok(buffer)
 }

@@ -8,6 +8,22 @@ use crate::{
     },
 };
 
+/*
+*
+* Record format
+*  format:     [header size,  serial type,  value of each col]
+*  datatype:   [varint     ,  varint     ,  this could be N bytes (also this is where we have schema type)]
+*
+*  for value of the columns for serial type 0, 8, 9, 12 and 13 the value is zero bytes in length. if the value
+*  is greater than 12 and is even then it's a BLOB.
+*
+*           A Blob is a file (only pure bytes right) ofcourse there is overflow and all involved but that an afterthought.
+*           As a general concept when you insert an image or audio or anything it's goes as blob
+*
+*  for value >= 13 and odd it will be a String (could be sql, tablename, name, schema type)
+*
+* */
+
 #[derive(Debug)]
 pub enum RecordDataType {
     STR(String),

@@ -16,7 +16,7 @@ impl From<u32> for TxtEncoding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BTreePageHeaderFormat {
     InteriorIndexBTreePage,
     InteriorTableBTreePage,

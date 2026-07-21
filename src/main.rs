@@ -4,7 +4,10 @@ use std::{
     str::FromStr,
 };
 
-use crate::{commands::Commands, file::DBFile};
+use crate::{
+    commands::Commands,
+    file::{Initialize, Root},
+};
 
 mod cell;
 mod commands;
@@ -33,10 +36,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let filename = args.get(1).unwrap().to_string();
     let command = Commands::from_str(args.get(2).unwrap())?;
 
-    let mut dbfile = DBFile::new();
-    dbfile.init(filename)?;
+    let mut root = Root::default();
+    root.init(filename);
 
-    Commands::process_cmd(command, &mut dbfile)?;
+    Commands::process_cmd(command, &mut root)?;
 
     Ok(())
 }

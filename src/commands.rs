@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use crate::{file::DBFile, page::PageType, recordformat::RecordDataType};
+use crate::{file::Root, page::PageType, recordformat::RecordDataType};
 
 #[derive(Debug)]
 pub enum Commands {
@@ -32,7 +32,7 @@ impl fmt::Display for Commands {
 impl Commands {
     pub fn process_cmd(
         command: Commands,
-        dbfile: &mut DBFile,
+        dbfile: &mut Root,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // let db_header = &dbfile.db_header;
 
