@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    file::{DBHeader, enums::BTreePageHeaderFormat},
-    page::{Page, PageHeader},
-    recordformat::RecordFormat,
+    btree::DBHeader,
+    file::enums::BTreePageHeaderFormat,
+    page::PageHeader,
+    // recordformat::RecordFormat,
     utils::{parse_be_byte_to_int, parse_varint_to_int},
 };
 
@@ -50,7 +51,7 @@ impl Cell {
             .get(&CellOperation::PageNumLeftChild)
             .is_some()
         {
-            self.pgnum_of_left_child = Some(parse_be_byte_to_int::<u32>(buf, contentcell_offset));
+            self.pgnum_of_left_child = Some(parse_be_byte_to_int!(buf, contentcell_offset, u32));
 
             contentcell_offset += 4;
         }
@@ -93,7 +94,7 @@ impl Cell {
             .get(&CellOperation::PageNumOfFirstOverflowPage)
             .is_some()
         {
-            self.first_overflow_pgno = parse_be_byte_to_int::<u32>(buf, contentcell_offset);
+            self.first_overflow_pgno = parse_be_byte_to_int!(buf, contentcell_offset, u32);
         }
     }
 
@@ -102,7 +103,7 @@ impl Cell {
 
         // Each cell ptr is 2 byte
         for idx in 0..num_of_cells {
-            let cellptr = parse_be_byte_to_int::<u16>(buf, idx as usize);
+            let cellptr = parse_be_byte_to_int!(buf, idx as usize, u16);
             cellptr_arr.push(cellptr);
         }
 

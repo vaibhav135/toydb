@@ -1,13 +1,10 @@
-use std::{collections::HashMap, error::Error};
+use std::error::Error;
 
 use crate::{
-    cell::{Cell, CellOperation},
-    file::{
-        DBHeader, Root, RootPayload,
-        enums::{BTreePageHeaderFormat, TxtEncoding},
-    },
-    recordformat::{RecordDataType, RecordFormat, get_enconding_type},
-    utils::{parse_be_byte_to_int, parse_le_byte_to_int, parse_varint_to_int, read_specific_bytes},
+    btree::{DBHeader, Root, RootPayload},
+    cell::Cell,
+    file::enums::BTreePageHeaderFormat,
+    utils::{parse_be_byte_to_int, parse_le_byte_to_int, read_specific_bytes},
 };
 
 use super::custom_error::CustomError;
@@ -26,6 +23,20 @@ pub struct PageHeader {
     pub ff_bytes_ccarea: u8,
     pub rightmost_ptr: Option<u32>, // Only appears for interior b-tree pages
     pub pgheader_size: u8,
+}
+
+impl Default for PageHeader {
+    fn default() -> Self {
+        PageHeader {
+            btree_pgtype: BTreePageHeaderFormat::LeafTableBTreePage,
+            first_freeblock_start: 0,
+            num_of_cells: 0,
+            ccarea_start: 0,
+            ff_bytes_ccarea: 0,
+            rightmost_ptr: None,
+            pgheader_size: 0,
+        }
+    }
 }
 
 // #[derive(Debug)]
@@ -101,20 +112,20 @@ pub trait Page {
         // This is the first element of the page header size: 1 byte, offset: 0
         let btree_pgtype = self.get_btree_page_type(buf[0])?;
 
-        let first_freeblock_start = parse_be_byte_to_int::<u16>(buf, 1);
+        let first_freeblock_start = parse_be_byte_to_int!(buf, 1, u16);
 
-        let num_of_cells = parse_be_byte_to_int::<u16>(buf, 3);
+        let num_of_cells = parse_be_byte_to_int!(buf, 3, u16);
 
-        let ccarea_start = parse_be_byte_to_int::<u16>(buf, 5);
+        let ccarea_start = parse_be_byte_to_int!(buf, 5, u16);
 
         // fragmented free bytes in cell content area
-        let ff_bytes_ccarea = parse_be_byte_to_int::<u8>(buf, 7);
+        let ff_bytes_ccarea = parse_be_byte_to_int!(buf, 7, u8);
 
         let mut rightmost_ptr = None;
         let mut pgheader_size = 8;
 
         if self.is_interior_page(&btree_pgtype) {
-            rightmost_ptr = Some(parse_be_byte_to_int::<u32>(buf, 8));
+            rightmost_ptr = Some(parse_be_byte_to_int!(buf, 8, u32));
             pgheader_size = 12;
         }
 
@@ -161,7 +172,7 @@ pub trait Page {
         let pg_raw_bytes = &buf[(pgoffset) as usize..(pgoffset + pgsize as u32) as usize];
 
         // First four bytes make the address of next overflow pg. If 0 then no overflowpg.
-        let nextpg = parse_le_byte_to_int::<u32>(pg_raw_bytes, 0);
+        let nextpg = parse_le_byte_to_int!(pg_raw_bytes, 0, u32);
 
         // Overflow pg excluding the next pg ptr.
         let additional_payload_bytes = &pg_raw_bytes[4..];
@@ -259,16 +270,18 @@ pub trait Page {
 
     type PgDataReturnType;
 
-    fn get_pgdata(&self) -> Self::PgDataReturnType;
+    fn get_pgdata(&self, pgheader: &PageHeader, payload: &Cell) -> Self::PgDataReturnType;
 }
-
-// impl Iterator
 
 impl Page for Root {
     type PgDataReturnType = RootPayload;
 
-    fn get_pgdata() -> Self::PgDataReturnType {
-        unimplemented!()
+    fn get_pgdata(&self, pgheader: &PageHeader, payload: &Cell) -> Self::PgDataReturnType {
+        // Since this is for the root, it can have only 2 possible btree types Interior table or Leaf
+        // Because the root has to hold the schema
+        if pgheader.btree_pgtype == BTreePageHeaderFormat::InteriorTableBTreePage {
+        } else {
+        }
     }
 }
 

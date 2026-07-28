@@ -1,111 +1,41 @@
-// Bytes to int conversion.
-//
-// -------------------------------------------------------------------------------
-//                              BIG AND LITTLE ENDIAN CONVERSION
-// -------------------------------------------------------------------------------
-
-// TODO: These need to be written as macros (Getting very repetitive).
-
-// BIG ENDIAN
-
 use std::{
     error::Error,
     fs::File,
     io::{Read, Seek},
 };
 
-pub trait FromBe {
-    // N represents size in byte.
-    const N: usize;
+// BIG ENDIAN
+#[macro_export]
+macro_rules! parse_be_byte_to_int {
+    ($buf:expr, $start_byte:expr, $size:ident) => {{
+        const N: usize = std::mem::size_of::<$size>();
 
-    fn be_from_slice(buf: &[u8]) -> Self;
-}
-
-impl FromBe for u8 {
-    const N: usize = std::mem::size_of::<u8>();
-
-    fn be_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u8 as FromBe>::N] = buf.try_into().unwrap();
-        Self::from_be_bytes(byte_slice)
-    }
-}
-
-impl FromBe for u16 {
-    const N: usize = std::mem::size_of::<u16>();
-
-    fn be_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u16 as FromBe>::N] = buf.try_into().unwrap();
-        Self::from_be_bytes(byte_slice)
-    }
-}
-
-impl FromBe for u32 {
-    const N: usize = std::mem::size_of::<u32>();
-
-    fn be_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u32 as FromBe>::N] = buf.try_into().unwrap();
-        Self::from_be_bytes(byte_slice)
-    }
-}
-
-impl FromBe for u64 {
-    const N: usize = std::mem::size_of::<u64>();
-
-    fn be_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u64 as FromBe>::N] = buf.try_into().unwrap();
-        Self::from_be_bytes(byte_slice)
-    }
-}
-
-pub fn parse_be_byte_to_int<T: FromBe>(buf: &[u8], start_byte: usize) -> T {
-    T::be_from_slice(&buf[start_byte..start_byte + T::N])
+        let byte_slice: [u8; N] = $buf[$start_byte..$start_byte + N].try_into().unwrap();
+        $size::from_be_bytes(byte_slice)
+    }};
 }
 
 // LITTLE ENDIAN
+#[macro_export]
+macro_rules! parse_le_byte_to_int {
+    ($buf:expr, $start_byte:expr, $size:ident) => {{
+        const N: usize = std::mem::size_of::<$size>();
 
-pub trait FromLe {
-    // N represents size in byte.
-    const N: usize;
-
-    fn le_from_slice(buf: &[u8]) -> Self;
+        let byte_slice: [u8; N] = $buf[$start_byte..$start_byte + N].try_into().unwrap();
+        $size::from_le_bytes(byte_slice)
+    }};
 }
 
-impl FromLe for u8 {
-    const N: usize = std::mem::size_of::<u8>();
+use crate::file::enums::TxtEncoding;
 
-    fn le_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u8 as FromLe>::N] = buf.try_into().unwrap();
-        Self::from_le_bytes(byte_slice)
-    }
-}
-
-impl FromLe for u16 {
-    const N: usize = std::mem::size_of::<u16>();
-
-    fn le_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u16 as FromLe>::N] = buf.try_into().unwrap();
-        Self::from_le_bytes(byte_slice)
-    }
-}
-
-impl FromLe for u32 {
-    const N: usize = std::mem::size_of::<u32>();
-
-    fn le_from_slice(buf: &[u8]) -> Self {
-        let byte_slice: [u8; <u32 as FromLe>::N] = buf.try_into().unwrap();
-        Self::from_le_bytes(byte_slice)
-    }
-}
-
-pub fn parse_le_byte_to_int<T: FromLe>(buf: &[u8], start_byte: usize) -> T {
-    T::le_from_slice(&buf[start_byte..start_byte + T::N])
-}
+pub(super) use super::parse_be_byte_to_int;
+pub(super) use super::parse_le_byte_to_int;
 
 // -------------------------------------------------------------------------------
 //                          BIT MANIPULATION
 // -------------------------------------------------------------------------------
 
-fn is_msb_negative(num: u8) -> bool {
+pub fn is_msb_negative(num: u8) -> bool {
     (num & 0x80) != 0
 }
 
@@ -143,13 +73,6 @@ pub fn parse_varint_to_int(buf: &[u8], _result: &mut u64) -> usize {
     idx + 1
 }
 
-// pub fn get_parse_varint_to_int(buf: &[u8]) -> u64 {
-//     let mut result: u64 = 0;
-//     let _ = parse_varint_to_int(buf, &mut result);
-//
-//     result
-// }
-
 pub fn convert_u8_to_u16_le(buf: &[u8]) -> Box<[u16]> {
     let res = buf
         .chunks(2)
@@ -177,4 +100,9 @@ pub fn read_specific_bytes(
     file.read(&mut buffer)?;
 
     Ok(buffer)
+}
+
+pub fn get_enconding_type(encoding_val: u32) -> TxtEncoding {
+    let encoding_type = <u32 as Into<TxtEncoding>>::into(encoding_val);
+    encoding_type
 }
