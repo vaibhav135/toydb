@@ -1,5 +1,13 @@
 #[derive(Debug)]
 pub struct InteriorTablePayload {
-    ptr: u32,
-    key: u64,
+    pub ptr: u32,
+    pub key: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BTreePageHeaderFormat {
+    InteriorIndexBTreePage,
+    InteriorTableBTreePage,
+    LeafIndexBTreePage,
+    LeafTableBTreePage,
 }

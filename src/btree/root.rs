@@ -60,30 +60,29 @@ pub struct DBHeader {
 
 #[derive(Debug)]
 pub enum RootPayload {
-    InteriorTable(InteriorTablePayload),
-    RootLeafTable(SqlSchema),
+    InteriorTable(Vec<InteriorTablePayload>),
+    RootLeafTable(Vec<SqlSchema>),
 }
 
 impl Default for RootPayload {
     fn default() -> Self {
-        RootPayload::RootLeafTable(SqlSchema {
-            schema_type: SchemaType::TABLE,
-            name: String::new(),
-            tbl_name: String::new(),
-            rootpg: 0,
-            sql: String::new(),
-        })
+        RootPayload::RootLeafTable(vec![])
     }
+}
+
+#[derive(Debug)]
+pub struct RootPage {
+    pub pgheader: PageHeader,
+    pub payload: RootPayload,
 }
 
 // Root is the first page.
 #[derive(Debug, Default)]
 pub struct Root {
     pub db_header: DBHeader,
-    pub pgheader: PageHeader,
     pub total_pages: usize,
 
-    pub payload: RootPayload,
+    pub pages: Vec<RootPage>,
 
     // Root usually have tables either interior or leaf.
     pub tables: HashMap<SchemaType, Vec<SqlSchema>>,

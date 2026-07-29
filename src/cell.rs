@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    btree::DBHeader,
-    file::enums::BTreePageHeaderFormat,
+    btree::{BTreePageHeaderFormat, DBHeader},
     page::PageHeader,
     // recordformat::RecordFormat,
     utils::{parse_be_byte_to_int, parse_varint_to_int},

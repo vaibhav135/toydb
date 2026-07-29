@@ -2,8 +2,8 @@ use crate::{btree::InteriorTablePayload, page::PageHeader, schema::RecordDataTyp
 
 #[derive(Debug)]
 pub struct InteriorIndexPayload {
-    ptr: Vec<u32>,
-    data: Vec<RecordDataType>,
+    pub ptr: u32,
+    pub data: Option<Vec<RecordDataType>>,
 }
 
 #[derive(Debug, Default)]
@@ -12,20 +12,21 @@ pub struct InteriorIndexPayload {
 // Also since all we need is the list of data for leaf which is common for
 // both the leaf index and leaf table.
 pub struct LeafPayload {
-    data: Vec<RecordDataType>,
+    pub rowid: Option<u64>,
+    pub data: Vec<RecordDataType>,
 }
 
 #[derive(Debug)]
 pub enum ChildPayload {
-    InteriorTablePayload(InteriorTablePayload),
-    InteriorIndexPayload(InteriorIndexPayload),
-    LeafTablePayload(LeafPayload),
-    LeafIndexPayload(LeafPayload),
+    InteriorTablePayload(Vec<InteriorTablePayload>),
+    InteriorIndexPayload(Vec<InteriorIndexPayload>),
+    LeafTablePayload(Vec<LeafPayload>),
+    LeafIndexPayload(Vec<LeafPayload>),
 }
 
 impl Default for ChildPayload {
     fn default() -> Self {
-        ChildPayload::LeafTablePayload(LeafPayload { data: vec![] })
+        ChildPayload::LeafTablePayload(vec![])
     }
 }
 
