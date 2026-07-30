@@ -1,104 +1,143 @@
-use std::{collections::HashMap, env::current_dir, fs::File, io::Read};
+use std::collections::HashMap;
+use std::error::Error;
+use std::{env::current_dir, fs::metadata};
 
 pub mod enums;
 
-use crate::{
-    page::{OverflowHashmap, Page, PageType},
-    utils::parse_be_byte_to_int,
-};
+use crate::btree::{DBFileInfo, DBHeader, Root, RootPage, RootPayload, SchemaType, SqlSchema};
+use crate::page::Page;
+use crate::utils::{parse_be_byte_to_int, read_specific_bytes};
 
-#[derive(Debug)]
-pub struct DBFile {
-    pub db_header: Option<DBHeader>,
-    pub total_pages: usize,
-    pub pages: Vec<PageType>,
-    pub buf: Vec<u8>,
-    pub overflowpg: HashMap<usize, OverflowHashmap>,
+pub trait Initialize {
+    fn init(&mut self, filename: String) -> Result<(), Box<dyn std::error::Error>>;
+    fn read_db_header(&mut self, buf: &[u8]) -> DBHeader;
+    fn read_root_data(
+        &self,
+        start_offset: u16,
+        pgno: u16,
+        filepath: &String,
+        dbheader: &DBHeader,
+        rootpg_list: &mut Vec<RootPage>,
+        tables: &mut HashMap<String, SqlSchema>,
+    ) -> Result<(), Box<dyn Error>>;
 }
 
-#[derive(Debug)]
-pub struct DBHeader {
-    // I have not added all the fields (only the ones I might need for now).
-    pub page_size: u16,
-
-    // ff: file format | w: write | r: read
-    pub ffw_ver: u8,
-    pub ffr_ver: u8,
-
-    pub resrv_bytes_per_pg: u8,
-
-    pub total_freelist_pages: u32,
-    pub def_pgcache_size: u32,
-    pub enc_val: u32,
-}
-
-impl DBFile {
-    pub fn new() -> Self {
-        DBFile {
-            db_header: None,
-            total_pages: 0,
-            pages: vec![],
-            buf: vec![],
-            overflowpg: HashMap::new(),
-        }
-    }
-
-    pub fn init(&mut self, filename: String) -> Result<(), Box<dyn std::error::Error>> {
+impl Initialize for Root {
+    fn init(&mut self, filename: String) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = current_dir()?;
         let filepath = format!("{}/{filename}", cwd.display());
 
-        let mut buf: Vec<u8> = vec![];
+        let total_page_size = metadata(&filepath).unwrap().len() as usize;
 
-        let total_page_size = File::open(filepath)?.read_to_end(&mut buf)?;
+        let fileinfo = DBFileInfo {
+            total_dbsize: total_page_size,
+            filepath: filepath,
+        };
 
-        self.buf = buf;
+        let dbheader_bytes = read_specific_bytes(&fileinfo.filepath, 0, 99)?;
+        let dbheader = self.read_db_header(&dbheader_bytes);
 
-        self.read_db_header(total_page_size);
+        let mut tables: HashMap<String, SqlSchema> = HashMap::new();
 
-        // For 1st page first 100 bytes are db header.
-        let mut start_pgheader = 100;
-        for pgno in 1..=self.total_pages {
-            // println!("page {pgno}");
-            self.read_page(pgno, start_pgheader)?;
-            start_pgheader = (self.db_header.as_ref().unwrap().page_size as usize) * pgno;
-            // println!("{:?}\n\n", self.pages[pgno - 1]);
+        let mut rootpg_list: Vec<RootPage> = vec![];
+
+        self.read_root_data(
+            100,
+            0,
+            &fileinfo.filepath,
+            &dbheader,
+            &mut rootpg_list,
+            &mut tables,
+        )?;
+
+        // Since all the pages are going to be of the same size
+        // we can get the total no. of pages.
+        self.total_pages = total_page_size / dbheader.page_size as usize;
+        self.metadata = fileinfo;
+        self.db_header = dbheader;
+        self.tables = tables;
+        self.pages = rootpg_list;
+
+        Ok(())
+    }
+
+    fn read_root_data(
+        &self,
+        start_offset: u16,
+        pgno: u16,
+        filepath: &String,
+        dbheader: &DBHeader,
+        rootpg_list: &mut Vec<RootPage>,
+        tables: &mut HashMap<String, SqlSchema>,
+    ) -> Result<(), Box<dyn Error>> {
+        println!("\npg no: {pgno}");
+
+        let pgsize = dbheader.page_size;
+        let pgoffset = if pgno > 0 {
+            (pgno - 1) as u32 * pgsize as u32
+        } else {
+            start_offset as u32
+        };
+
+        let (pgheader, cells) = self.read_page(filepath, &dbheader, start_offset, pgoffset)?;
+
+        let pgdata = self.get_pgdata(&dbheader, &pgheader, &cells)?;
+
+        rootpg_list.push(RootPage {
+            pgheader,
+            pgno: pgno,
+        });
+
+        match pgdata {
+            RootPayload::InteriorTable(payload) => {
+                println!("interior table: {:?}", payload);
+                for item in payload {
+                    self.read_root_data(
+                        0,
+                        item.ptr as u16,
+                        filepath,
+                        dbheader,
+                        rootpg_list,
+                        tables,
+                    )?;
+                }
+            }
+            RootPayload::LeafTable(sqlschema_list) => {
+                for schema in sqlschema_list {
+                    tables.insert(schema.tbl_name.to_owned(), schema);
+                }
+            } // _ => Err(format!("Invalid root payload type...")),
         }
 
         Ok(())
     }
 
-    pub fn read_db_header(&mut self, total_page_size: usize) {
+    fn read_db_header(&mut self, buf: &[u8]) -> DBHeader {
         // First 100 bytes of the 1st page is database header, and
         // that is where we are extracting page size from.
-        let page_size = parse_be_byte_to_int::<u16>(&self.buf, 16);
+        let page_size = parse_be_byte_to_int!(buf, 16, u16);
 
-        // Since all the pages are going to be of the same size
-        // we can get the total no. of pages.
-        let total_pages = total_page_size / page_size as usize;
+        let resrv_bytes_per_pg = parse_be_byte_to_int!(buf, 20, u8);
 
-        let resrv_bytes_per_pg = parse_be_byte_to_int(&self.buf, 20);
+        let ffw_ver = parse_be_byte_to_int!(buf, 18, u8);
+        let ffr_ver = parse_be_byte_to_int!(buf, 19, u8);
 
-        let ffw_ver = parse_be_byte_to_int::<u8>(&self.buf, 18);
-        let ffr_ver = parse_be_byte_to_int::<u8>(&self.buf, 19);
-
-        let total_freelist_pages = parse_be_byte_to_int::<u32>(&self.buf, 36);
-        let def_pgcache_size = parse_be_byte_to_int::<u32>(&self.buf, 48);
+        let total_freelist_pages = parse_be_byte_to_int!(&buf, 36, u32);
+        let def_pgcache_size = parse_be_byte_to_int!(buf, 48, u32);
 
         // text encoding is a  4-byte BE int at offset 56 -> https://www.sqlite.org/fileformat2.html#enc
-        let enc_val = parse_be_byte_to_int::<u32>(&self.buf, 56);
+        let enc_val = parse_be_byte_to_int!(buf, 56, u32);
 
-        self.total_pages = total_pages;
+        // self.total_pages = total_pages;
 
-        if self.db_header.is_none() {
-            self.db_header = Some(DBHeader {
-                page_size,
-                resrv_bytes_per_pg,
-                ffw_ver,
-                ffr_ver,
-                total_freelist_pages,
-                def_pgcache_size,
-                enc_val,
-            });
+        DBHeader {
+            page_size,
+            resrv_bytes_per_pg,
+            ffw_ver,
+            ffr_ver,
+            total_freelist_pages,
+            def_pgcache_size,
+            enc_val,
         }
     }
 }

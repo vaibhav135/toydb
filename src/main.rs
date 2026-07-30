@@ -4,14 +4,15 @@ use std::{
     str::FromStr,
 };
 
-use crate::{commands::Commands, file::DBFile};
+use crate::{commands::Commands, file::Initialize};
 
+mod btree;
 mod cell;
 mod commands;
 mod custom_error;
 mod file;
 mod page;
-mod recordformat;
+mod schema;
 mod utils;
 
 fn main() {
@@ -33,10 +34,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let filename = args.get(1).unwrap().to_string();
     let command = Commands::from_str(args.get(2).unwrap())?;
 
-    let mut dbfile = DBFile::new();
-    dbfile.init(filename)?;
+    let mut root = btree::Root::default();
+    root.init(filename)?;
 
-    Commands::process_cmd(command, &mut dbfile)?;
+    print!("{:?}", root.tables);
+
+    // Commands::process_cmd(command, &mut root)?;
 
     Ok(())
 }
