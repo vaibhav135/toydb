@@ -88,7 +88,8 @@ pub struct Root {
     pub pages: Vec<RootPage>,
 
     // Root usually have tables either interior or leaf.
-    pub tables: HashMap<SchemaType, Vec<SqlSchema>>,
+    // The key is the table name actually
+    pub tables: HashMap<String, SqlSchema>,
 
     pub metadata: DBFileInfo,
 }

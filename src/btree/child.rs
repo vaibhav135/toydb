@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{btree::InteriorTablePayload, page::PageHeader, schema::RecordDataType};
 
 #[derive(Debug)]
@@ -34,5 +36,7 @@ impl Default for ChildPayload {
 pub struct Child {
     pub pgheader: PageHeader,
     pub pgno: u32,
-    pub payload: ChildPayload,
+
+    // HashMap<Table Name: String, List of records (as record itself is an array of fields)
+    pub rows: HashMap<String, Vec<Vec<RecordDataType>>>,
 }

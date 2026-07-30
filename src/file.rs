@@ -18,7 +18,7 @@ pub trait Initialize {
         filepath: &String,
         dbheader: &DBHeader,
         rootpg_list: &mut Vec<RootPage>,
-        tables: &mut HashMap<SchemaType, Vec<SqlSchema>>,
+        tables: &mut HashMap<String, SqlSchema>,
     ) -> Result<(), Box<dyn Error>>;
 }
 
@@ -37,12 +37,7 @@ impl Initialize for Root {
         let dbheader_bytes = read_specific_bytes(&fileinfo.filepath, 0, 99)?;
         let dbheader = self.read_db_header(&dbheader_bytes);
 
-        let mut tables: HashMap<SchemaType, Vec<SqlSchema>> = HashMap::from([
-            (SchemaType::TABLE, vec![]),
-            (SchemaType::INDEX, vec![]),
-            (SchemaType::VIEW, vec![]),
-            (SchemaType::TRIGGER, vec![]),
-        ]);
+        let mut tables: HashMap<String, SqlSchema> = HashMap::new();
 
         let mut rootpg_list: Vec<RootPage> = vec![];
 
@@ -73,7 +68,7 @@ impl Initialize for Root {
         filepath: &String,
         dbheader: &DBHeader,
         rootpg_list: &mut Vec<RootPage>,
-        tables: &mut HashMap<SchemaType, Vec<SqlSchema>>,
+        tables: &mut HashMap<String, SqlSchema>,
     ) -> Result<(), Box<dyn Error>> {
         println!("\npg no: {pgno}");
 
@@ -109,9 +104,7 @@ impl Initialize for Root {
             }
             RootPayload::LeafTable(sqlschema_list) => {
                 for schema in sqlschema_list {
-                    tables
-                        .entry(schema.schema_type)
-                        .and_modify(|list| list.push(schema));
+                    tables.insert(schema.tbl_name.to_owned(), schema);
                 }
             } // _ => Err(format!("Invalid root payload type...")),
         }

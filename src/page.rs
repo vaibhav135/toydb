@@ -6,8 +6,7 @@ use crate::{
         InteriorTablePayload, LeafPayload, Root, RootPayload, SqlSchema,
     },
     cell::Cell,
-    file::enums::TxtEncoding,
-    schema::{RecordDataType, RootSchema, Schema},
+    schema::{RootSchema, Schema},
     utils::{parse_be_byte_to_int, read_specific_bytes},
 };
 
