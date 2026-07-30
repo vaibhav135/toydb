@@ -89,7 +89,7 @@ pub fn convert_u8_to_u16_be(buf: &[u8]) -> Box<[u16]> {
 
 pub fn read_specific_bytes(
     filepath: &String,
-    start_byte: u16,
+    start_byte: u32,
     pg_size: u16,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut file = File::open(filepath)?;

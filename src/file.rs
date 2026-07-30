@@ -1,13 +1,25 @@
+use std::collections::HashMap;
+use std::error::Error;
 use std::{env::current_dir, fs::metadata};
 
 pub mod enums;
 
-use crate::btree::{DBFileInfo, DBHeader, Root};
+use crate::btree::{DBFileInfo, DBHeader, Root, RootPage, RootPayload, SchemaType, SqlSchema};
+use crate::page::Page;
 use crate::utils::{parse_be_byte_to_int, read_specific_bytes};
 
 pub trait Initialize {
     fn init(&mut self, filename: String) -> Result<(), Box<dyn std::error::Error>>;
     fn read_db_header(&mut self, buf: &[u8]) -> DBHeader;
+    fn read_root_data(
+        &self,
+        start_offset: u16,
+        pgno: u16,
+        filepath: &String,
+        dbheader: &DBHeader,
+        rootpg_list: &mut Vec<RootPage>,
+        tables: &mut HashMap<SchemaType, Vec<SqlSchema>>,
+    ) -> Result<(), Box<dyn Error>>;
 }
 
 impl Initialize for Root {
@@ -23,22 +35,86 @@ impl Initialize for Root {
         };
 
         let dbheader_bytes = read_specific_bytes(&fileinfo.filepath, 0, 99)?;
-        let db_header = self.read_db_header(&dbheader_bytes);
+        let dbheader = self.read_db_header(&dbheader_bytes);
+
+        let mut tables: HashMap<SchemaType, Vec<SqlSchema>> = HashMap::from([
+            (SchemaType::TABLE, vec![]),
+            (SchemaType::INDEX, vec![]),
+            (SchemaType::VIEW, vec![]),
+            (SchemaType::TRIGGER, vec![]),
+        ]);
+
+        let mut rootpg_list: Vec<RootPage> = vec![];
+
+        self.read_root_data(
+            100,
+            0,
+            &fileinfo.filepath,
+            &dbheader,
+            &mut rootpg_list,
+            &mut tables,
+        )?;
 
         // Since all the pages are going to be of the same size
         // we can get the total no. of pages.
-        self.total_pages = total_page_size / db_header.page_size as usize;
+        self.total_pages = total_page_size / dbheader.page_size as usize;
+        self.metadata = fileinfo;
+        self.db_header = dbheader;
+        self.tables = tables;
+        self.pages = rootpg_list;
 
-        // self.read_sql_shcema();
+        Ok(())
+    }
 
-        // For 1st page first 100 bytes are db header.
-        // let mut start_pgheader = 100;
-        // for pgno in 1..=self.total_pages {
-        //     println!("page {pgno}");
-        //     self.read_page(pgno, start_pgheader)?;
-        //     start_pgheader = (self.db_header.as_ref().unwrap().page_size as usize) * pgno;
-        //     println!("{:?}\n\n", self.pages[pgno - 1]);
-        // }
+    fn read_root_data(
+        &self,
+        start_offset: u16,
+        pgno: u16,
+        filepath: &String,
+        dbheader: &DBHeader,
+        rootpg_list: &mut Vec<RootPage>,
+        tables: &mut HashMap<SchemaType, Vec<SqlSchema>>,
+    ) -> Result<(), Box<dyn Error>> {
+        println!("\npg no: {pgno}");
+
+        let pgsize = dbheader.page_size;
+        let pgoffset = if pgno > 0 {
+            (pgno - 1) as u32 * pgsize as u32
+        } else {
+            start_offset as u32
+        };
+
+        let (pgheader, cells) = self.read_page(filepath, &dbheader, start_offset, pgoffset)?;
+
+        let pgdata = self.get_pgdata(&dbheader, &pgheader, &cells)?;
+
+        rootpg_list.push(RootPage {
+            pgheader,
+            pgno: pgno,
+        });
+
+        match pgdata {
+            RootPayload::InteriorTable(payload) => {
+                println!("interior table: {:?}", payload);
+                for item in payload {
+                    self.read_root_data(
+                        0,
+                        item.ptr as u16,
+                        filepath,
+                        dbheader,
+                        rootpg_list,
+                        tables,
+                    )?;
+                }
+            }
+            RootPayload::LeafTable(sqlschema_list) => {
+                for schema in sqlschema_list {
+                    tables
+                        .entry(schema.schema_type)
+                        .and_modify(|list| list.push(schema));
+                }
+            } // _ => Err(format!("Invalid root payload type...")),
+        }
 
         Ok(())
     }

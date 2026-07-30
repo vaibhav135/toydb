@@ -43,6 +43,7 @@ impl Cell {
         start_byte: usize,
         buf: &[u8],
     ) {
+        let mut payload_overflow_bytes = 0;
         let mut contentcell_offset = start_byte;
         let cell_field_map = CellOperation::get_valid_cell_fields(&pgheader.btree_pgtype);
 
@@ -72,9 +73,8 @@ impl Cell {
 
             contentcell_offset += rowid_varint_size;
         }
-
         if cell_field_map.get(&CellOperation::Payload).is_some() {
-            let payload_overflow_bytes = CellOperation::get_payload_overflow_bytes(
+            payload_overflow_bytes = CellOperation::get_payload_overflow_bytes(
                 &(dbheader.page_size as usize),
                 dbheader.resrv_bytes_per_pg,
                 self.payload_size as usize,
@@ -89,9 +89,10 @@ impl Cell {
             contentcell_offset += current_cc_size;
         }
 
-        if cell_field_map
-            .get(&CellOperation::PageNumOfFirstOverflowPage)
-            .is_some()
+        if payload_overflow_bytes > 0
+            && cell_field_map
+                .get(&CellOperation::PageNumOfFirstOverflowPage)
+                .is_some()
         {
             self.first_overflow_pgno = parse_be_byte_to_int!(buf, contentcell_offset, u32);
         }
@@ -102,7 +103,9 @@ impl Cell {
 
         // Each cell ptr is 2 byte
         for idx in 0..num_of_cells {
-            let cellptr = parse_be_byte_to_int!(buf, idx as usize, u16);
+            // each cell ptr is 2 bytes so the start offset will shift by 2
+            let nxt_idx = (idx * 2) as usize;
+            let cellptr = parse_be_byte_to_int!(buf, nxt_idx, u16);
             cellptr_arr.push(cellptr);
         }
 

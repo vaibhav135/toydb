@@ -43,55 +43,11 @@ impl Default for PageHeader {
     }
 }
 
-// #[derive(Debug)]
-// pub struct BtreePage {
-//     // A page consists of database header (only in the 1st page), page header, cell pointer array,
-//     // unallocated space, cell content area and the reserved region. This struct only consist of
-//     // page header and cells (Not an overall representation of the whole page, but only for us to
-//     // keep the important data, that we need).
-//     pub page_header: Option<PageHeader>,
-//     pub cells: Vec<Cell>,
-// }
-
-// #[derive(Debug)]
-// pub struct OverflowPage {
-//     pub nextpgno: u32,
-//     pub content: Vec<RecordDataType>,
-// }
-//
-// #[derive(Debug)]
-// pub struct OverflowHashmap {
-//     pub prevpg: u32,
-//     pub nextpg: u32,
-//     pub parent_pgno: u32,
-//     pub cellno: u16,
-//
-//     // Idx of the content in the cell payload for which overflow is happening.
-//     pub cont_payload_idx: u32,
-//
-//     // Remaining bytes for the content for which we are overflowing.
-//     pub cont_remaining_bytes: u32,
-// }
-
-// #[derive(Debug)]
-// pub enum PageType {
-//     Btree(BtreePage),
-//
-//     // when overflow happens in a cell rest of the content is stored in linkedin list. Where
-//     // each node is a overflow page consisting of the nextpg idx and the content.
-//     Overflow(OverflowPage),
-// }
-//
-// #[derive(Debug)]
-// pub enum PageKind {
-//     Btree,
-//     Overflow,
-// }
-
 pub trait Page {
     // In the page header format table it's mentioned, for which offset
     // what is the type of b-tree page we have.
     fn get_btree_page_type(&self, offset_val: u8) -> Result<BTreePageHeaderFormat, CustomError> {
+        println!("pagetype value: {}", offset_val);
         match offset_val {
             2 => Ok(BTreePageHeaderFormat::InteriorIndexBTreePage),
             5 => Ok(BTreePageHeaderFormat::InteriorTableBTreePage),
@@ -115,6 +71,8 @@ pub trait Page {
     fn read_pgheader(&self, buf: &[u8]) -> Result<PageHeader, Box<dyn Error>> {
         // This is the first element of the page header size: 1 byte, offset: 0
         let btree_pgtype = self.get_btree_page_type(buf[0])?;
+
+        println!("pagetype: {:?}", btree_pgtype);
 
         let first_freeblock_start = parse_be_byte_to_int!(buf, 1, u16);
 
@@ -149,19 +107,19 @@ pub trait Page {
         pgheader: &PageHeader,
         dbheader: &DBHeader,
         buf: &[u8],
-        start_byte: u8,
+        start_byte: u16,
     ) -> Vec<Cell> {
-        let cellptr_arr = Cell::get_cellptr_arr(pgheader.num_of_cells, buf);
+        let cellptr_arr = Cell::get_cellptr_arr(
+            pgheader.num_of_cells,
+            &buf[pgheader.pgheader_size as usize..],
+        );
         let mut cells = vec![];
+
+        println!("{:?}\n", cellptr_arr);
 
         for cellptr in cellptr_arr {
             let mut cell = Cell::new();
-            cell.read_cell(
-                &pgheader,
-                dbheader,
-                (cellptr as u8 - start_byte) as usize,
-                buf,
-            );
+            cell.read_cell(&pgheader, dbheader, (cellptr - start_byte) as usize, buf);
 
             cells.push(cell);
         }
@@ -169,11 +127,20 @@ pub trait Page {
         cells
     }
 
-    fn read_overflowpg(&self, curr_payload: &mut Vec<u8>, pgno: u32, pgsize: u8, buf: &[u8]) {
+    fn read_overflowpg(
+        &self,
+        filepath: &String,
+        curr_payload: &mut Vec<u8>,
+        pgno: u32,
+        pgsize: u16,
+    ) -> Result<(), Box<dyn Error>> {
         let pgoffset = (pgno - 1) * pgsize as u32;
 
+        println!("OVERFLOW!!!!");
+        println!("overflow pgoffset: {}", pgoffset);
+
         // This is your overflow page with next pg ptr..
-        let pg_raw_bytes = &buf[(pgoffset) as usize..(pgoffset + pgsize as u32) as usize];
+        let pg_raw_bytes = read_specific_bytes(filepath, pgoffset, pgsize)?;
 
         // First four bytes make the address of next overflow pg. If 0 then no overflowpg.
         let nextpg = parse_be_byte_to_int!(pg_raw_bytes, 0, u32);
@@ -183,91 +150,63 @@ pub trait Page {
         curr_payload.extend_from_slice(additional_payload_bytes);
 
         if nextpg > 0 {
-            self.read_overflowpg(curr_payload, pgno, pgsize, buf);
+            self.read_overflowpg(filepath, curr_payload, nextpg, pgsize)?;
         }
 
-        return;
+        Ok(())
     }
 
-    fn set_payload_overflow_bytes(&self, cells: &mut Vec<Cell>, buf: &[u8], pgsize: u8) {
+    fn set_payload_overflow_bytes(
+        &self,
+        filepath: &String,
+        cells: &mut Vec<Cell>,
+        pgsize: u16,
+    ) -> Result<(), Box<dyn Error>> {
         for cell in cells {
             if let Some(payload) = &mut cell.payload {
                 if cell.first_overflow_pgno > 0 {
-                    self.read_overflowpg(payload, cell.first_overflow_pgno, pgsize, buf);
+                    self.read_overflowpg(filepath, payload, cell.first_overflow_pgno, pgsize)?;
                 }
             }
         }
+
+        Ok(())
     }
 
     fn read_page(
         &self,
         filepath: &String,
         dbheader: &DBHeader,
-        pgsize: u8,
-        start_offset: u8,
+        start_offset: u16,
+        pgoffset: u32,
+        // pgoffset is basically where this whole page starts from absolute position can be 5th
+        // page and if size is say 512 so will will start from 2048.
+        // Start offset is relative to it's own size. This is 100 for 1st page (since we have db
+        // header) for rest it will be 0.
     ) -> Result<(PageHeader, Vec<Cell>), Box<dyn Error>> {
-        let page_raw_bytes = read_specific_bytes(
-            filepath,
-            start_offset as u16,
-            (pgsize - start_offset) as u16,
-        )?;
+        println!(
+            "\nfilepath: {}\ndb header: {:?}\npage offset: {}\n",
+            filepath, dbheader, pgoffset
+        );
+
+        let pgsize = dbheader.page_size;
+        let buf_size = if start_offset > 0 && start_offset < pgsize {
+            pgsize - start_offset
+        } else {
+            pgsize as u16
+        };
+
+        let page_raw_bytes = read_specific_bytes(filepath, pgoffset, buf_size)?;
 
         let pgheader = self.read_pgheader(&page_raw_bytes)?;
 
         let mut cells = self.get_pgcells(&pgheader, &dbheader, &page_raw_bytes, start_offset);
 
-        if pgheader.btree_pgtype != BTreePageHeaderFormat::InteriorTableBTreePage {
-            self.set_payload_overflow_bytes(&mut cells, &page_raw_bytes, pgsize);
-        }
+        println!("{:?}\n", cells);
 
-        /*
-         *   So what to do now???
-         *
-         *   what do we have -> I mean we have either data of
-         *      leaf table      ,    leaf index
-         *      interior table  ,    interior index
-         *
-         *      leaf table      ->   check for overflow, handle overflow, append extrabytes then
-         *                           extract payload. If it's root then store it as schmea sql.
-         *                           Otherwiseit's a row data (the structure for that we can think).
-         *
-         *
-         *      interior table  ->   There is no overflow. Only left chlid and rowid, and right most
-         *                           pointer. First gather all the pointers and keys. We know they are
-         *                           already sorted. Then once we have gathered then we just need to
-         *                           traverse. But again we need to perform the same operation for
-         *                           check page header (basically gather data. Ofcourse we will not be
-         *                           doing it for all the pages but more like for the query and related
-         *                           page. But for the intital I will do it for all since I want to see
-         *                           if it works well)
-         *
-         *       leaf index     ->   Check for overflow, Index will have again all the rows data. But
-         *                           beware that we need to do index scan so searching is also
-         *                           something I need to think about.
-         *
-         *       Interior index ->   Very similar to interior table again traverse the pointers and
-         *                           store the page (that I have to think further).
-         *
-         *   struct InteriorTableData {
-         *       ptr: u8,
-         *       key: u8,
-         *   }
-         *
-         *   struct RootLeafTable {
-         *     schema
-         *     sql
-         *     tablename
-         *   }
-         *
-         *   Enum RootData {
-         *       InteriorTable(IntereiorPayload)
-         *       LeafTable(LeafPayload)
-         *   }
-         *
-         *   type BlahBlah =  RootData;
-         *
-         *
-         * */
+        if pgheader.btree_pgtype != BTreePageHeaderFormat::InteriorTableBTreePage {
+            self.set_payload_overflow_bytes(filepath, &mut cells, pgsize)?;
+        }
 
         Ok((pgheader, cells))
     }
@@ -339,7 +278,7 @@ impl Page for Root {
                 )?;
                 sqlschema_list.push(sql_schema);
             }
-            Ok(RootPayload::RootLeafTable(sqlschema_list))
+            Ok(RootPayload::LeafTable(sqlschema_list))
         }
     }
 }

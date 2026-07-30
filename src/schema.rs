@@ -196,17 +196,21 @@ pub trait Schema {
 
         let mut stype_with_content_size: Vec<(u64, usize)> = vec![];
 
-        let mut total_cols = header - 1;
+        let total_cols = header - header_varint_size as u64;
+        let mut cur_col = 0;
 
-        while total_cols > 0 {
+        while cur_col < total_cols {
             let mut stype = 0u64;
 
-            cur_payload_offset += parse_varint_to_int(&payload[cur_payload_offset..], &mut stype);
+            let stype_varint_size = parse_varint_to_int(&payload[cur_payload_offset..], &mut stype);
+            cur_payload_offset += stype_varint_size;
 
             let content_size = self.get_content_size_for_stype(stype);
             stype_with_content_size.push((stype, content_size));
-            total_cols -= 1;
+            cur_col += stype_varint_size as u64;
         }
+
+        println!("\n{:?}", stype_with_content_size);
 
         let mut schema_content: Vec<RecordDataType> = vec![];
         for (stype, content_size) in stype_with_content_size {

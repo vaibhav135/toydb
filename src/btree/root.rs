@@ -11,7 +11,7 @@ pub struct SqlSchema {
     pub sql: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchemaType {
     TABLE,
     INDEX,
@@ -61,19 +61,22 @@ pub struct DBHeader {
 #[derive(Debug)]
 pub enum RootPayload {
     InteriorTable(Vec<InteriorTablePayload>),
-    RootLeafTable(Vec<SqlSchema>),
+    LeafTable(Vec<SqlSchema>),
 }
 
 impl Default for RootPayload {
     fn default() -> Self {
-        RootPayload::RootLeafTable(vec![])
+        RootPayload::LeafTable(vec![])
     }
 }
 
+// NOTE: I am not super sure about this. A root page can have interior nodes which means
+// schema will be spread throughout different pages, therefore will have page header for each
+// page, but I don't know if this is the right structure to represent that.
 #[derive(Debug)]
 pub struct RootPage {
     pub pgheader: PageHeader,
-    pub payload: RootPayload,
+    pub pgno: u16,
 }
 
 // Root is the first page.

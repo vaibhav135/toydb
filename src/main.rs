@@ -35,9 +35,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let command = Commands::from_str(args.get(2).unwrap())?;
 
     let mut root = btree::Root::default();
-    root.init(filename);
+    root.init(filename)?;
 
-    Commands::process_cmd(command, &mut root)?;
+    print!("{:?}", root.tables);
+
+    // Commands::process_cmd(command, &mut root)?;
 
     Ok(())
 }
