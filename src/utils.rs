@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fs::File,
-    io::{Read, Seek},
+    io::{Read, Seek, Write},
 };
 
 // BIG ENDIAN
@@ -105,4 +105,14 @@ pub fn read_specific_bytes(
 pub fn get_enconding_type(encoding_val: u32) -> TxtEncoding {
     let encoding_type = <u32 as Into<TxtEncoding>>::into(encoding_val);
     encoding_type
+}
+
+pub fn readline() -> Result<String, String> {
+    write!(std::io::stdout(), "$ ").map_err(|e| e.to_string())?;
+    std::io::stdout().flush().map_err(|e| e.to_string())?;
+    let mut buffer = String::new();
+    std::io::stdin()
+        .read_line(&mut buffer)
+        .map_err(|e| e.to_string())?;
+    Ok(buffer)
 }
