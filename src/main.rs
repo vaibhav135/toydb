@@ -1,10 +1,9 @@
 use std::{
     env::{self},
     process,
-    str::FromStr,
 };
 
-use crate::{cli::Cli, commands::Commands, file::Initialize};
+use crate::cli::Cli;
 
 mod btree;
 mod cell;
@@ -13,6 +12,7 @@ mod commands;
 mod custom_error;
 mod file;
 mod page;
+mod query;
 mod schema;
 mod utils;
 
