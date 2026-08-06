@@ -336,7 +336,7 @@ impl Page for Child {
                 if cell.rowid.is_some() {
                     leaftable_payload.push(LeafPayload {
                         rowid: cell.rowid,
-                        data,
+                        row: data,
                     });
                 }
             }

@@ -1,18 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
-use crate::{btree::InteriorTablePayload, page::PageHeader};
+use crate::{
+    btree::InteriorTablePayload,
+    page::{Page, PageHeader},
+    parse_be_byte_to_int,
+};
 
 #[derive(Debug)]
 pub struct SqlSchema {
     pub schema_type: SchemaType, // could be a table, index, view or trigger
     pub name: String,            // name of the object
     pub tbl_name: String,        // name of table or view the object is associated with
-    pub rootpg: i64,
+    pub rootpg: u32,
     pub sql: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchemaType {
+    #[default]
     TABLE,
     INDEX,
     VIEW,
@@ -23,8 +28,9 @@ impl TryFrom<String> for SchemaType {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let match_value = value.as_str();
-        match match_value {
+        // let match_value = value.as_str();
+
+        match value.to_lowercase().as_str() {
             "table" => Ok(SchemaType::TABLE),
             "index" => Ok(SchemaType::INDEX),
             "trigger" => Ok(SchemaType::TRIGGER),
@@ -70,7 +76,7 @@ impl Default for RootPayload {
     }
 }
 
-// NOTE: I am not super sure about this. A root page can have interior nodes which means
+// NOTE: I am not sure about this. A root page can have interior nodes which means
 // schema will be spread throughout different pages, therefore will have page header for each
 // page, but I don't know if this is the right structure to represent that.
 #[derive(Debug)]
@@ -92,4 +98,86 @@ pub struct Root {
     pub tables: HashMap<String, SqlSchema>,
 
     pub metadata: DBFileInfo,
+}
+
+impl Root {
+    pub fn read_root_data(
+        &self,
+        start_offset: u16,
+        pgno: u16,
+        filepath: &String,
+        dbheader: &DBHeader,
+        rootpg_list: &mut Vec<RootPage>,
+        tables: &mut HashMap<String, SqlSchema>,
+    ) -> Result<(), Box<dyn Error>> {
+        println!("\npg no: {pgno}");
+
+        let pgsize = dbheader.page_size;
+        let pgoffset = if pgno > 0 {
+            (pgno - 1) as u32 * pgsize as u32
+        } else {
+            start_offset as u32
+        };
+
+        let (pgheader, cells) = self.read_page(filepath, &dbheader, start_offset, pgoffset)?;
+
+        let pgdata = self.get_pgdata(&dbheader, &pgheader, &cells)?;
+
+        rootpg_list.push(RootPage {
+            pgheader,
+            pgno: pgno,
+        });
+
+        match pgdata {
+            RootPayload::InteriorTable(payload) => {
+                println!("interior table: {:?}", payload);
+                for item in payload {
+                    self.read_root_data(
+                        0,
+                        item.ptr as u16,
+                        filepath,
+                        dbheader,
+                        rootpg_list,
+                        tables,
+                    )?;
+                }
+            }
+            RootPayload::LeafTable(sqlschema_list) => {
+                for schema in sqlschema_list {
+                    tables.insert(schema.tbl_name.to_owned(), schema);
+                }
+            } // _ => Err(format!("Invalid root payload type...")),
+        }
+
+        Ok(())
+    }
+
+    pub fn read_db_header(&mut self, buf: &[u8]) -> DBHeader {
+        // First 100 bytes of the 1st page is database header, and
+        // that is where we are extracting page size from.
+        let page_size = parse_be_byte_to_int!(buf, 16, u16);
+
+        let resrv_bytes_per_pg = parse_be_byte_to_int!(buf, 20, u8);
+
+        let ffw_ver = parse_be_byte_to_int!(buf, 18, u8);
+        let ffr_ver = parse_be_byte_to_int!(buf, 19, u8);
+
+        let total_freelist_pages = parse_be_byte_to_int!(&buf, 36, u32);
+        let def_pgcache_size = parse_be_byte_to_int!(buf, 48, u32);
+
+        // text encoding is a  4-byte BE int at offset 56 -> https://www.sqlite.org/fileformat2.html#enc
+        let enc_val = parse_be_byte_to_int!(buf, 56, u32);
+
+        // self.total_pages = total_pages;
+
+        DBHeader {
+            page_size,
+            resrv_bytes_per_pg,
+            ffw_ver,
+            ffr_ver,
+            total_freelist_pages,
+            def_pgcache_size,
+            enc_val,
+        }
+    }
 }

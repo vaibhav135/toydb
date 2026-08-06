@@ -6,6 +6,6 @@ mod root;
 // Child represents rows
 // Imagine them as nodes. Root at the top, everything else is a child node.
 
-pub use child::{Child, ChildPayload, InteriorIndexPayload, LeafPayload};
+pub use child::{Child, ChildPayload, InteriorIndexPayload, LeafPayload, TableRow};
 pub use common::{BTreePageHeaderFormat, InteriorTablePayload};
 pub use root::{DBFileInfo, DBHeader, Root, RootPage, RootPayload, SchemaType, SqlSchema};
