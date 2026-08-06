@@ -29,7 +29,10 @@ use crate::{
 #[derive(Debug)]
 pub enum RecordDataType {
     STR(String),
-    INT(i64),
+    INT8(i8),
+    INT16(i16),
+    INT32(i32),
+    INT64(i64),
     FLOAT(f64),
     BLOB(Box<[u8]>),
     NULL,
@@ -46,8 +49,9 @@ impl Into<String> for &RecordDataType {
 
 impl Into<Result<SchemaType, Box<dyn Error>>> for &RecordDataType {
     fn into(self) -> Result<SchemaType, Box<dyn Error>> {
+        println!("{:?}", self);
         let schema_type: SchemaType = match self {
-            RecordDataType::STR(str) => String::try_from(str)?.try_into()?,
+            RecordDataType::STR(str) => SchemaType::try_from(str.to_string())?,
             _ => SchemaType::TABLE,
         };
 
@@ -58,27 +62,46 @@ impl Into<Result<SchemaType, Box<dyn Error>>> for &RecordDataType {
 impl Into<i64> for &RecordDataType {
     fn into(self) -> i64 {
         match self {
-            RecordDataType::INT(val) => val.to_owned(),
+            RecordDataType::INT64(val) => val.to_owned(),
             _ => 0,
         }
     }
 }
 
-fn parse_non_prim_int(buf: &[u8], size: u8) -> i64 {
+impl Into<f64> for &RecordDataType {
+    fn into(self) -> f64 {
+        match self {
+            RecordDataType::FLOAT(val) => val.to_owned(),
+            _ => 0.0,
+        }
+    }
+}
+
+impl Into<u32> for &RecordDataType {
+    fn into(self) -> u32 {
+        match self {
+            RecordDataType::INT8(val) => val.to_owned() as u32,
+            RecordDataType::INT16(val) => val.to_owned() as u32,
+            RecordDataType::INT32(val) => val.to_owned() as u32,
+            _ => 0,
+        }
+    }
+}
+
+fn parse_non_prim_int(buf: &[u8], size: u8) -> RecordDataType {
     let mut msb = 0x00;
     if is_msb_negative(buf[0]) {
         msb = 0xFF;
     }
 
-    let res: i64 = 0;
     match size {
         24 => {
             let new_buf = [msb, buf[0], buf[1], buf[2]];
-            parse_be_byte_to_int!(buf, 0, i32) as i64
+            RecordDataType::INT32(parse_be_byte_to_int!(buf, 0, i32))
         }
         _ => {
             let new_buf = [msb, msb, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]];
-            parse_be_byte_to_int!(buf, 0, i64)
+            RecordDataType::INT64(parse_be_byte_to_int!(buf, 0, i64))
         }
     }
 }
@@ -140,36 +163,32 @@ pub trait Schema {
         let content = match stype {
             0 => RecordDataType::NULL,
             1..=6 => {
-                let val;
-
                 if stype == 1 {
                     // 8bit 2's complement
-                    val = parse_be_byte_to_int!(buf, 0, i8) as i64;
+                    return Ok(RecordDataType::INT8(parse_be_byte_to_int!(buf, 0, i8)));
                 } else if stype == 2 {
                     // 16 bit 2's complement
-                    val = parse_be_byte_to_int!(buf, 0, i16) as i64;
+                    return Ok(RecordDataType::INT16(parse_be_byte_to_int!(buf, 0, i16)));
                 } else if stype == 3 {
                     // 24 bit 2's complement
-                    val = parse_non_prim_int(buf, 24);
+                    return Ok(parse_non_prim_int(buf, 24));
                 } else if stype == 4 {
                     // 32 bit 2's complement
-                    val = parse_be_byte_to_int!(buf, 0, i32) as i64;
+                    return Ok(RecordDataType::INT32(parse_be_byte_to_int!(buf, 0, i32)));
                 } else if stype == 5 {
                     // 48 bit 2's complement
-                    val = parse_non_prim_int(buf, 48)
+                    return Ok(parse_non_prim_int(buf, 48));
                 } else {
                     // 64 bit 2's complement
-                    val = parse_be_byte_to_int!(buf, 0, i64);
+                    return Ok(RecordDataType::INT64(parse_be_byte_to_int!(buf, 0, i64)));
                 }
-
-                RecordDataType::INT(val)
             }
             7 => {
                 let val = f64::from_be_bytes(buf.try_into()?);
                 RecordDataType::FLOAT(val)
             }
             10..=11 => RecordDataType::NULL,
-            8 | 9 | 12 | 13 => RecordDataType::INT(0),
+            8 | 9 | 12 | 13 => RecordDataType::INT8(0),
             _ => {
                 if stype > 12 && (stype % 2) == 0 {
                     let blob = Box::from(buf);
@@ -236,7 +255,7 @@ pub trait RootSchema: Schema {
     ) -> Result<Self::SchemaType, Box<dyn Error>>;
 
     fn get_sqlite_schema_str(&self, content: Option<&RecordDataType>) -> String;
-    fn get_sqlite_schema_int(&self, content: Option<&RecordDataType>) -> i64;
+    fn get_sqlite_schema_int(&self, content: Option<&RecordDataType>) -> u32;
 }
 
 impl Schema for Root {}
@@ -253,8 +272,8 @@ impl RootSchema for Root {
         schema_str
     }
 
-    fn get_sqlite_schema_int(&self, content: Option<&RecordDataType>) -> i64 {
-        let schema_int: i64 = if let Some(res) = content {
+    fn get_sqlite_schema_int(&self, content: Option<&RecordDataType>) -> u32 {
+        let schema_int: u32 = if let Some(res) = content {
             res.into()
         } else {
             0
@@ -269,6 +288,7 @@ impl RootSchema for Root {
     ) -> Result<Self::SchemaType, Box<dyn Error>> {
         let schema_content = self.read_content(enc_val, payload)?;
 
+        println!("schema type in record format: {:?}", schema_content.get(0));
         let schema_type: SchemaType = if let Some(res) = schema_content.get(0) {
             let schema_type_result: Result<SchemaType, Box<dyn Error>> = res.into();
             schema_type_result?
@@ -278,7 +298,7 @@ impl RootSchema for Root {
 
         let name: String = self.get_sqlite_schema_str(schema_content.get(1));
         let tbl_name: String = self.get_sqlite_schema_str(schema_content.get(2));
-        let rootpg: i64 = self.get_sqlite_schema_int(schema_content.get(3));
+        let rootpg: u32 = self.get_sqlite_schema_int(schema_content.get(3));
         let sql: String = self.get_sqlite_schema_str(schema_content.get(4));
 
         Ok(SqlSchema {

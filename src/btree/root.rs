@@ -11,12 +11,13 @@ pub struct SqlSchema {
     pub schema_type: SchemaType, // could be a table, index, view or trigger
     pub name: String,            // name of the object
     pub tbl_name: String,        // name of table or view the object is associated with
-    pub rootpg: i64,
+    pub rootpg: u32,
     pub sql: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchemaType {
+    #[default]
     TABLE,
     INDEX,
     VIEW,
@@ -27,8 +28,9 @@ impl TryFrom<String> for SchemaType {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let match_value = value.as_str();
-        match match_value {
+        // let match_value = value.as_str();
+
+        match value.to_lowercase().as_str() {
             "table" => Ok(SchemaType::TABLE),
             "index" => Ok(SchemaType::INDEX),
             "trigger" => Ok(SchemaType::TRIGGER),

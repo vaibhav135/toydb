@@ -1,13 +1,66 @@
 use std::str::FromStr;
 
+use crate::btree::SchemaType;
+
+/**
+* NOTE: [About type affinity]:
+* one interesting thing about sqlite is that it supports - type affinity by default.
+* Meaning any of the fields can be of a storage class (i.e, affinity), but it's only
+* a recommended type and not required (i.e, not enforced).
+* If you want strict types then you have to create table with the strict table option.
+*/
+#[derive(Debug)]
+pub enum ColType {
+    TEXT,
+    INTEGER,
+    NUMERIC,
+    REAL,
+    BLOB,
+}
+
 #[derive(Debug, Default)]
 pub enum QueryType {
-    CREATE,
-
     #[default]
     SELECT,
+
+    CREATE,
+    INSERT,
     UPDATE,
     DELETE,
+}
+
+#[derive(Debug, Default)]
+pub struct SelectParsedQuery {
+    pub tblname: String,
+    pub output_fields: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct CreateParsedQuery {
+    pub tblname: String,
+    pub schematype: SchemaType,
+
+    // NOTE:
+    // Currently we'll only have support for name.
+    // I did try to add checks for constraint and types and whatnot
+    // but the grammer is too big to handle (too many cases) for my
+    // super-dumb parser to handle. Maybe once I learn more about AST's
+    // parser generator (how lemon parser generator works) since that's what
+    // sqlite does. Then maybe we'll give it a real shot on handling all
+    // that neat stuff. For now we will only extract col names that's it.
+    pub cols: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum ParsedQueryResult {
+    CREATE(CreateParsedQuery),
+    SELECT(SelectParsedQuery),
+}
+
+impl Default for ParsedQueryResult {
+    fn default() -> Self {
+        ParsedQueryResult::SELECT(SelectParsedQuery::default())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +85,7 @@ impl FromStr for QueryType {
             "update" => Ok(QueryType::UPDATE),
             "delete" => Ok(QueryType::DELETE),
             "select" => Ok(QueryType::SELECT),
+            "insert" => Ok(QueryType::INSERT),
             _ => Err(
                 "invalid query type. Check your spelling or make sure it's one of these SELECT, CREATE, UPDATE, DELETE (valid in lower case too)",
             ),
@@ -69,67 +123,3 @@ impl From<QueryClause> for String {
         }
     }
 }
-
-// parse the query and return tokenized strings.
-/*
- *
- * -----------------Query Parser -----------------------------------------
- *
- * enum QueryType {
- *     Create,
- *     Select,
- *     Update,
- *     Delete,
- * }
- *
- * ParsedQuery {
- *   tablename:
- *   output_fields: * or specific fields
- *   QueryType
- *   WHERE CLAUSE option<>
- *   LIMIT option<>
- * }
- *
- * implment from for this QueryType
- *
- *
- *
- *
- * tokenized string
- *   select * from xyz; [ full table scan]
- *
- *   ["select", "*", "from", "xyz"]
- *
- *   query_type: QueryType = tokenized_query[0].into();
- *
- *   ouput_fields = ["*"];
- *
- *
- *   if curr_elem == "from" {
- *      tablename = tokenized_query[idx+1];
- *   }
- *
- *
- *
- * ----------------------- Executor Take over -------------------------------
- *
- *
- * impl QueryExecutor {
- *       fn execute(&self, query: String) {
- *           parse(query)
- *       }
- * }
- *
- *   if exists root.sqlschema[tablename] {
- *      let table = root.sqlschema[tablenmae];
- *      start_pg = table.rootpg;
- *
- *      read buffer
- *
- *   }else {
- *       Raise Error("Invalid fields !!!")
- *   }
- *
- *
- *
- * */

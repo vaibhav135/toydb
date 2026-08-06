@@ -1,6 +1,8 @@
-use std::{env::current_dir, error::Error, path::Path};
+use std::{error::Error, path::Path};
 
-use crate::{btree::Root, file::Initialize, utils::readline};
+use crate::{
+    btree::Root, commands::Commands, file::Initialize, query::QueryExecutor, utils::readline,
+};
 
 #[derive(Debug)]
 pub struct Cli {
@@ -12,7 +14,7 @@ impl Cli {
     pub fn init(&self) -> Result<(), Box<dyn Error>> {
         let mut root = Root::default();
         if let Some(filename) = self.filename.to_owned() {
-            if !Path::new(&filename).is_dir() {
+            if !Path::new(&filename).is_file() {
                 return Err(format!("Invalid filepath !!!").into());
             }
 
@@ -26,14 +28,20 @@ impl Cli {
                 )
                 .into());
             }
+
+            if !Commands::is_valid(&cmd) {
+                return Err(format!("please provide a valid command").into());
+            }
+
+            Commands::process_cmd(&cmd, &root)?;
         }
 
-        self.start(&mut root)?;
+        self.start(&mut root, self.filename.to_owned().unwrap())?;
 
         Ok(())
     }
 
-    pub fn start(&self, root: &mut Root) -> Result<(), Box<dyn Error>> {
+    pub fn start(&self, root: &mut Root, filepath: String) -> Result<(), Box<dyn Error>> {
         loop {
             let mut input = readline()?;
 
@@ -44,7 +52,12 @@ impl Cli {
                     break;
                 }
                 _ => {
-                    println!("Invalid Command!!!")
+                    if Commands::is_valid(&input) {
+                        Commands::process_cmd(&input, root)?;
+                    } else {
+                        let queryexec = QueryExecutor::new(input.to_string(), filepath.to_string());
+                        queryexec.execute(root)?;
+                    }
                 }
             }
         }

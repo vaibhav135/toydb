@@ -1,6 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
-use crate::{btree::InteriorTablePayload, page::PageHeader, schema::RecordDataType};
+use crate::{
+    btree::{DBHeader, InteriorTablePayload, SqlSchema},
+    page::{Page, PageHeader},
+    schema::RecordDataType,
+};
 
 #[derive(Debug)]
 pub struct InteriorIndexPayload {
@@ -15,7 +19,7 @@ pub struct InteriorIndexPayload {
 // both the leaf index and leaf table.
 pub struct LeafPayload {
     pub rowid: Option<u64>,
-    pub data: Vec<RecordDataType>,
+    pub row: Vec<RecordDataType>,
 }
 
 #[derive(Debug)]
@@ -33,10 +37,77 @@ impl Default for ChildPayload {
 }
 
 #[derive(Debug, Default)]
-pub struct Child {
-    pub pgheader: PageHeader,
-    pub pgno: u32,
+pub struct TableRow {
+    pub tblname: String,
+    // First tuple is the rowid and at second pos it's the row.
+    pub rows: Vec<(Option<u64>, Vec<RecordDataType>)>,
+    pub total_rows: u64,
+}
 
-    // HashMap<Table Name: String, List of records (as record itself is an array of fields)
-    pub rows: HashMap<String, Vec<Vec<RecordDataType>>>,
+#[derive(Debug, Default)]
+pub struct Child {
+    pgno: u32,
+    pgheader: PageHeader,
+    data: ChildPayload,
+}
+
+impl Child {
+    pub fn get_rows(
+        &self,
+        filepath: &String,
+        dbheader: &DBHeader,
+        schema: &SqlSchema,
+    ) -> Result<TableRow, Box<dyn Error>> {
+        let rootpg = schema.rootpg;
+
+        let mut tablerow = TableRow {
+            tblname: schema.tbl_name.to_owned(),
+            rows: vec![],
+            total_rows: 0,
+        };
+
+        self.get_child_data(filepath, dbheader, rootpg, schema, &mut tablerow)?;
+
+        Ok(tablerow)
+    }
+
+    fn get_child_data(
+        &self,
+        filepath: &String,
+        dbheader: &DBHeader,
+        pgno: u32,
+        schema: &SqlSchema,
+        tablerow: &mut TableRow,
+    ) -> Result<(), Box<dyn Error>> {
+        let pgsize = dbheader.page_size;
+        let pgoffset = (pgno - 1) * pgsize as u32;
+
+        println!("pgsize: {}", pgsize);
+        println!("pgno: {}", pgno);
+        println!("in child: {}", pgoffset);
+
+        let (pgheader, cells) = self.read_page(filepath, dbheader, 0, pgoffset)?;
+
+        let pgdata = self.get_pgdata(&dbheader, &pgheader, &cells)?;
+
+        match pgdata {
+            ChildPayload::LeafTablePayload(leafpayload) => {
+                for payload in leafpayload {
+                    tablerow.rows.push((payload.rowid, payload.row));
+                    tablerow.total_rows += 1;
+                }
+            }
+            ChildPayload::InteriorTablePayload(interior_payload) => {
+                for payload in interior_payload {
+                    let nxtpgno = payload.ptr;
+
+                    self.get_child_data(filepath, dbheader, nxtpgno, schema, tablerow);
+                }
+            }
+            ChildPayload::LeafIndexPayload(payload) => {}
+            ChildPayload::InteriorIndexPayload(payload) => {}
+        }
+
+        Ok(())
+    }
 }
