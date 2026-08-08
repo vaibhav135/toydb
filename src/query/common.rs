@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::btree::SchemaType;
+use crate::{btree::SchemaType, record_type::RecordDataType};
 
 /**
 * NOTE: [About type affinity]:
@@ -29,13 +29,19 @@ pub enum QueryType {
     DELETE,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SelectParsedQuery {
     pub tblname: String,
     pub output_fields: Vec<String>,
+
+    // NOTE: Currently the scope of where claude very limited,
+    // only support one field that's it
+    // first is the field and the second one is the value
+    // field (string) = Value (RecordDataType)
+    pub where_clause: Option<(String, RecordDataType)>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CreateParsedQuery {
     pub tblname: String,
     pub schematype: SchemaType,
@@ -51,7 +57,7 @@ pub struct CreateParsedQuery {
     pub cols: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ParsedQueryResult {
     CREATE(CreateParsedQuery),
     SELECT(SelectParsedQuery),

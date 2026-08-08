@@ -46,7 +46,6 @@ pub trait Page {
     // In the page header format table it's mentioned, for which offset
     // what is the type of b-tree page we have.
     fn get_btree_page_type(&self, offset_val: u8) -> Result<BTreePageHeaderFormat, CustomError> {
-        println!("pagetype value: {}", offset_val);
         match offset_val {
             2 => Ok(BTreePageHeaderFormat::InteriorIndexBTreePage),
             5 => Ok(BTreePageHeaderFormat::InteriorTableBTreePage),
@@ -114,7 +113,7 @@ pub trait Page {
         );
         let mut cells = vec![];
 
-        println!("{:?}\n", cellptr_arr);
+        // println!("{:?}\n", cellptr_arr);
 
         for cellptr in cellptr_arr {
             let mut cell = Cell::new();
@@ -134,9 +133,6 @@ pub trait Page {
         pgsize: u16,
     ) -> Result<(), Box<dyn Error>> {
         let pgoffset = (pgno - 1) * pgsize as u32;
-
-        println!("OVERFLOW!!!!");
-        println!("overflow pgoffset: {}", pgoffset);
 
         // This is your overflow page with next pg ptr..
         let pg_raw_bytes = read_specific_bytes(filepath, pgoffset, pgsize)?;
@@ -183,10 +179,10 @@ pub trait Page {
         // Start offset is relative to it's own size. This is 100 for 1st page (since we have db
         // header) for rest it will be 0.
     ) -> Result<(PageHeader, Vec<Cell>), Box<dyn Error>> {
-        println!(
-            "\nfilepath: {}\ndb header: {:?}\npage offset: {}\n",
-            filepath, dbheader, pgoffset
-        );
+        // println!(
+        //     "\nfilepath: {}\ndb header: {:?}\npage offset: {}\n",
+        //     filepath, dbheader, pgoffset
+        // );
 
         let pgsize = dbheader.page_size;
         let buf_size = if start_offset > 0 && start_offset < pgsize {
@@ -201,7 +197,7 @@ pub trait Page {
 
         let mut cells = self.get_pgcells(&pgheader, &dbheader, &page_raw_bytes, start_offset);
 
-        println!("{:?}\n", cells);
+        // println!("{:?}\n", cells);
 
         if pgheader.btree_pgtype != BTreePageHeaderFormat::InteriorTableBTreePage {
             self.set_payload_overflow_bytes(filepath, &mut cells, pgsize)?;
@@ -220,21 +216,24 @@ pub trait Page {
         let mut interior_payload: Vec<InteriorTablePayload> = vec![];
 
         // Setting all the left pointers and keys
-        for cell in cells {
-            if cell.pgnum_of_left_child.is_some() {
+        for (idx, cell) in cells.iter().enumerate() {
+            if let Some(leftptr) = cell.pgnum_of_left_child {
                 interior_payload.push(InteriorTablePayload {
-                ptr: cell.pgnum_of_left_child.expect("ptr to child nodes will be there cause this function will only be called for interior nodes"),
-                key: cell.rowid,
+                    leftptr: leftptr,
+
+                    // Since the cell is going from desc to asce, the first key
+                    // will have the rightmost ptr.
+                    rightptr: if idx > 0 {
+                        cells[idx - 1]
+                            .pgnum_of_left_child
+                            .expect("for a key that exists will have a ptr")
+                    } else {
+                        pgheader.rightmost_ptr.unwrap()
+                    },
+
+                    key: cell.rowid.unwrap(),
                 });
             }
-        }
-
-        // Setting rightmost ptr at the end.
-        if pgheader.rightmost_ptr.is_some() {
-            interior_payload.push(InteriorTablePayload {
-                ptr: pgheader.rightmost_ptr.unwrap(),
-                key: None,
-            });
         }
 
         interior_payload
@@ -295,9 +294,7 @@ impl Page for Child {
             Ok(ChildPayload::InteriorTablePayload(
                 self.get_interior_node_ptr(pgheader, cells),
             ))
-        } else if pgheader.btree_pgtype == BTreePageHeaderFormat::InteriorTableBTreePage {
-            let child_node_ptr = self.get_interior_node_ptr(pgheader, cells);
-
+        } else if pgheader.btree_pgtype == BTreePageHeaderFormat::InteriorIndexBTreePage {
             let mut payload: Vec<InteriorIndexPayload> = vec![];
             for (idx, cell) in cells.iter().enumerate() {
                 let data = self.read_content(
@@ -307,20 +304,23 @@ impl Page for Child {
                         .expect("payload is set for all the btree  pages except interior table"),
                 )?;
 
-                if cell.rowid.is_some() {
+                if let Some(leftptr) = cell.pgnum_of_left_child {
                     payload.push(InteriorIndexPayload {
-                        ptr: child_node_ptr[idx].ptr,
+                        leftptr: leftptr,
+                        // Since the cell is going from desc to asce, the first key
+                        // will have the rightmost ptr.
+                        rightptr: if idx > 0 {
+                            cells[idx - 1]
+                                .pgnum_of_left_child
+                                .expect("for a key that exists will have a ptr")
+                        } else {
+                            pgheader.rightmost_ptr.unwrap()
+                        },
+
                         data: Some(data),
                     });
                 }
             }
-
-            let rightmost_ptr = child_node_ptr[child_node_ptr.len() - 1].ptr;
-
-            payload.push(InteriorIndexPayload {
-                ptr: rightmost_ptr,
-                data: None,
-            });
 
             Ok(ChildPayload::InteriorIndexPayload(payload))
         } else {

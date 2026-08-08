@@ -1,3 +1,9 @@
+/**
+*  List of imp links:
+*     
+*     doc on sqlite limits -> https://sqlite.org/limits.html
+*
+* */
 use std::{
     env::{self},
     process,
@@ -13,6 +19,7 @@ mod custom_error;
 mod file;
 mod page;
 mod query;
+mod record_type;
 mod schema;
 mod utils;
 

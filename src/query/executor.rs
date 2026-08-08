@@ -4,13 +4,23 @@ use std::{
 };
 
 use crate::{
-    btree::{Child, Root, SqlSchema, TableRow},
+    btree::{Child, DBHeader, IndexRow, Root, Row, SchemaType, SqlSchema, TableRow},
     query::{
-        common::{CreateParsedQuery, ParsedQueryResult},
+        common::{CreateParsedQuery, ParsedQueryResult, SelectParsedQuery},
         parser::QueryParser,
     },
-    schema::RecordDataType,
+    record_type::RecordDataType,
 };
+
+#[derive(Debug)]
+pub enum QueryOperations {
+    GetAll,
+    SearchByID(u64),
+
+    // In case of indexing the indexed val, will be the first one and then the row id will be the
+    // second in interior or leaf index btree page.
+    IdxSearchByVal(RecordDataType),
+}
 
 #[derive(Debug)]
 pub struct QueryExecutor {
@@ -33,8 +43,65 @@ impl QueryExecutor {
 
         match parsed_query {
             ParsedQueryResult::SELECT(select_parsed_query) => {
-                if let Some(table) = root.tables.get(&select_parsed_query.tblname) {
-                    cur_table = table;
+                let schema_list = root.tables.get(&select_parsed_query.tblname);
+
+                println!("Selected parsed query: {:?}", select_parsed_query);
+
+                if schema_list.is_some() {
+                    let tblpos = schema_list
+                        .unwrap()
+                        .iter()
+                        .position(|tbl| tbl.schema_type == SchemaType::TABLE);
+
+                    if tblpos.is_none() {
+                        return Err(
+                            format!("table not found!!! please type a valid table name").into()
+                        );
+                    }
+
+                    let idxpos = schema_list
+                        .unwrap()
+                        .iter()
+                        .position(|tbl| tbl.schema_type == SchemaType::INDEX);
+
+                    let select_fields = &select_parsed_query.output_fields;
+                    let cur_table = &schema_list.unwrap()[tblpos.unwrap()];
+
+                    let childnode = Child::default();
+
+                    let idxrows = self.get_idx_rows(
+                        &childnode,
+                        idxpos,
+                        &schema_list.unwrap(),
+                        &select_parsed_query,
+                        dbheader,
+                        &qparser,
+                    )?;
+
+                    println!("{:?}", idxrows);
+                    let mut tbl_queryop = QueryOperations::GetAll;
+
+                    if idxrows.total_rows > 0 {
+                        tbl_queryop = QueryOperations::SearchByID(idxrows.rows[0]);
+                    }
+
+                    if let Row::TABLE(tablerow) =
+                        &childnode.get_rows(&self.filepath, dbheader, &cur_table, tbl_queryop)?
+                    {
+                        let total_qexec_time = qstart_time.elapsed();
+
+                        let orig_cols = self
+                            .get_orig_cols(&qparser, cur_table.sql.to_string())?
+                            .cols;
+
+                        // if select_fields.len() == 1 && select_fields[0] == "*" {
+                        //     self.printrows(&orig_cols, total_qexec_time, tablerow, &orig_cols);
+                        // } else {
+                        //     self.validate_output_fields(&select_fields, &orig_cols)?;
+                        //
+                        //     self.printrows(&select_fields, total_qexec_time, tablerow, &orig_cols);
+                        // }
+                    }
                 } else {
                     return Err(format!("table not found!!! please type a valid table name").into());
                 }
@@ -46,29 +113,43 @@ impl QueryExecutor {
                 // });
                 // println!("cur table: {:?}", cur_table);
 
-                let select_fields = select_parsed_query.output_fields;
-
-                let childnode = Child::default();
-                let tablerow = childnode.get_rows(&self.filepath, dbheader, cur_table)?;
-
-                let total_qexec_time = qstart_time.elapsed();
-
-                let orig_cols = self
-                    .get_orig_cols(&qparser, cur_table.sql.to_string())?
-                    .cols;
-
-                if select_fields.len() == 1 && select_fields[0] == "*" {
-                    self.printrows(&orig_cols, total_qexec_time, tablerow, &orig_cols);
-                } else {
-                    self.validate_output_fields(&select_fields, &orig_cols)?;
-
-                    self.printrows(&select_fields, total_qexec_time, tablerow, &orig_cols);
-                }
-
                 Ok(())
             }
             _ => Err(format!("Sorry we don't support any other query type for now").into()),
         }
+    }
+
+    fn get_idx_rows(
+        &self,
+        childnode: &Child,
+        idxpos: Option<usize>,
+        schema_list: &Vec<SqlSchema>,
+        select_parsed_query: &SelectParsedQuery,
+        dbheader: &DBHeader,
+        qparser: &ParsedQueryResult,
+    ) -> Result<IndexRow, Box<dyn Error>> {
+        let mut idxrows = IndexRow::default();
+
+        if let Some((field, value)) = &select_parsed_query.where_clause {
+            if let Some(pos) = idxpos {
+                let idx_schema = &schema_list[pos];
+
+                let idx_query = self.get_orig_cols(&qparser, idx_schema.sql.to_string())?;
+
+                if idx_query.cols.contains(&field) {
+                    if let Row::INDEX(idx_row) = childnode.get_rows(
+                        &self.filepath,
+                        dbheader,
+                        &idx_schema,
+                        QueryOperations::IdxSearchByVal(value.to_owned()),
+                    )? {
+                        idxrows = idx_row;
+                    }
+                }
+            }
+        }
+
+        Ok(idxrows)
     }
 
     fn get_orig_cols(
@@ -103,7 +184,7 @@ impl QueryExecutor {
         &self,
         user_output_cols: &Vec<String>,
         qexec_time: Duration,
-        tablerow: TableRow,
+        tablerow: &TableRow,
         orig_cols: &Vec<String>,
     ) {
         // This will fix the order of the user output cols. Basically match the order with original
@@ -128,7 +209,7 @@ impl QueryExecutor {
         }
         println!("\n");
 
-        for (_rowid, row) in tablerow.rows {
+        for (_rowid, row) in &tablerow.rows {
             for (idx, field) in row.iter().enumerate() {
                 if !cols_to_print[idx].is_empty() {
                     match field {

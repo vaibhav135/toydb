@@ -5,6 +5,7 @@ use crate::{
     query::common::{
         ColType, CreateParsedQuery, ParsedQueryResult, QueryClause, QueryType, SelectParsedQuery,
     },
+    record_type::RecordDataType,
 };
 
 trait QueryParserInner {
@@ -119,6 +120,12 @@ trait QueryParserInner {
         &self,
         query_tokens: Vec<String>,
     ) -> Result<SelectParsedQuery, Box<dyn Error>>;
+
+    // ------------ WHERE CLAUSE -------------------------------
+    fn parse_where_clause(
+        &self,
+        query_tokens: Vec<String>,
+    ) -> Result<Option<(String, RecordDataType)>, Box<dyn Error>>;
 }
 
 #[allow(private_bounds)]
@@ -127,6 +134,94 @@ pub trait QueryParser: QueryParserInner {
 }
 
 impl QueryParserInner for ParsedQueryResult {
+    fn parse_where_clause(
+        &self,
+        query_tokens: Vec<String>,
+    ) -> Result<Option<(String, RecordDataType)>, Box<dyn Error>> {
+        let where_pos = query_tokens
+            .iter()
+            .position(|token| token.to_lowercase() == "where");
+
+        println!("\nwhere pos: {:?}\n", where_pos);
+        if let Some(pos) = where_pos {
+            let rest_tokens = query_tokens[pos..].to_vec();
+            println!("rest tokens: {:?}\n", rest_tokens);
+
+            if let Some(equality_pos) = rest_tokens.iter().position(|token| token.contains("=")) {
+                if equality_pos >= 1 && rest_tokens.len() - 1 > equality_pos {
+                    let mut field = String::new();
+                    let mut val = String::new();
+
+                    // (opening quote, closing quote) -> quote => double | single
+                    let mut quotes_pos = vec![];
+                    let mut quotes = String::new();
+
+                    for (idx, token) in rest_tokens.iter().enumerate() {
+                        if token.contains("\"") {
+                            if quotes.is_empty() {
+                                quotes = String::from("\"");
+                            }
+                            if quotes == "'" {
+                                return Err(format!("Invalid quoting in where clause").into());
+                            }
+                            quotes_pos.push(idx);
+                        } else if token.contains("'") {
+                            if quotes.is_empty() {
+                                quotes = String::from("'");
+                            }
+                            if quotes == "'" {
+                                return Err(format!("Invalid quoting in where clause").into());
+                            }
+                            quotes_pos.push(idx);
+                        }
+
+                        // if quotes.is_empty() {
+                        //     if token.contains("\"") {
+                        //         quotes = String::from("\"");
+                        //         quotes_pos.push(idx);
+                        //     } else if token.contains("'") {
+                        //         quotes = String::from("'");
+                        //         quotes_pos.push(idx);
+                        //     }
+                        //     continue;
+                        // } else if token.contains("\"") && quotes == "\"" {
+                        //     quotes_pos.push(idx);
+                        //     quotes = String::from("");
+                        // } else if token.contains("'") && quotes == "'" {
+                        //     quotes_pos.push(idx);
+                        //     quotes = String::from("");
+                        // } else {
+                        //     return Err(format!("Invalid quoting in where clause").into());
+                        // }
+                    }
+
+                    if rest_tokens[equality_pos].len() > 1 {
+                        let equality_token_split = rest_tokens[equality_pos].split("=");
+                        println!("equality split: {:?}", equality_token_split);
+                    } else {
+                        field = rest_tokens[equality_pos - 1].to_string();
+
+                        val = rest_tokens[equality_pos + 1]
+                            .replace("'", "")
+                            .replace('"', "");
+                    }
+
+                    println!("Field: {}", field);
+                    println!("Value: {}", val);
+
+                    let record_value = RecordDataType::convert_str_to_recordformat(val.to_string());
+
+                    return Ok(Some((field, record_value)));
+                } else {
+                    return Ok(None);
+                }
+            }
+            return Ok(None);
+        }
+
+        Ok(None)
+    }
+
     fn handle_select_query(
         &self,
         query_tokens: Vec<String>,
@@ -160,9 +255,12 @@ impl QueryParserInner for ParsedQueryResult {
                 self.filter_delim(query_tokens[from_pos.unwrap() + 1].to_owned())[0].to_string();
         }
 
+        let where_clause = self.parse_where_clause(query_tokens);
+
         Ok(SelectParsedQuery {
             tblname,
             output_fields,
+            where_clause,
         })
     }
 
