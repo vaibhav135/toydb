@@ -1,3 +1,9 @@
+/**
+*  List of imp links:
+*     
+*     doc on sqlite limits -> https://sqlite.org/limits.html
+*
+* */
 use std::{collections::HashMap, error::Error};
 
 use crate::{
@@ -95,7 +101,7 @@ pub struct Root {
 
     // Root usually have tables either interior or leaf.
     // The key is the table name actually
-    pub tables: HashMap<String, SqlSchema>,
+    pub tables: HashMap<String, Vec<SqlSchema>>,
 
     pub metadata: DBFileInfo,
 }
@@ -108,7 +114,7 @@ impl Root {
         filepath: &String,
         dbheader: &DBHeader,
         rootpg_list: &mut Vec<RootPage>,
-        tables: &mut HashMap<String, SqlSchema>,
+        tables: &mut HashMap<String, Vec<SqlSchema>>,
     ) -> Result<(), Box<dyn Error>> {
         println!("\npg no: {pgno}");
 
@@ -130,21 +136,38 @@ impl Root {
 
         match pgdata {
             RootPayload::InteriorTable(payload) => {
-                println!("interior table: {:?}", payload);
-                for item in payload {
+                // println!("interior table: {:?}", payload);
+                for (idx, item) in payload.iter().enumerate() {
                     self.read_root_data(
                         0,
-                        item.ptr as u16,
+                        item.leftptr as u16,
                         filepath,
                         dbheader,
                         rootpg_list,
                         tables,
                     )?;
+
+                    if idx == payload.len() - 1 {
+                        self.read_root_data(
+                            0,
+                            item.rightptr as u16,
+                            filepath,
+                            dbheader,
+                            rootpg_list,
+                            tables,
+                        )?;
+                    }
                 }
             }
             RootPayload::LeafTable(sqlschema_list) => {
                 for schema in sqlschema_list {
-                    tables.insert(schema.tbl_name.to_owned(), schema);
+                    if tables.contains_key(&schema.tbl_name) {
+                        tables
+                            .entry(schema.tbl_name.to_owned())
+                            .and_modify(|schema_list| schema_list.push(schema));
+                    } else {
+                        tables.insert(schema.tbl_name.to_string(), vec![schema]);
+                    }
                 }
             } // _ => Err(format!("Invalid root payload type...")),
         }

@@ -1,7 +1,8 @@
 #[derive(Debug)]
 pub struct InteriorTablePayload {
-    pub ptr: u32,
-    pub key: Option<u64>,
+    pub leftptr: u32,
+    pub rightptr: u32,
+    pub key: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]

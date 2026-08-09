@@ -1,92 +1,14 @@
-use std::{error::Error, iter::Enumerate};
+use std::error::Error;
 
 use crate::{
     btree::{Child, Root, SchemaType, SqlSchema},
     file::enums::TxtEncoding,
-    page::PageHeader,
+    record_type::RecordDataType,
     utils::{
         convert_u8_to_u16_be, convert_u8_to_u16_le, get_enconding_type, is_msb_negative,
         parse_be_byte_to_int, parse_varint_to_int,
     },
 };
-
-/*
-*
-* Record format
-*  format:     [header size,  serial type,  value of each col]
-*  datatype:   [varint     ,  varint     ,  this could be N bytes (also this is where we have schema type)]
-*
-*  for value of the columns for serial type 0, 8, 9, 12 and 13 the value is zero bytes in length. if the value
-*  is greater than 12 and is even then it's a BLOB.
-*
-*           A Blob is a file (only pure bytes right) ofcourse there is overflow and all involved but that an afterthought.
-*           As a general concept when you insert an image or audio or anything it's goes as blob
-*
-*  for value >= 13 and odd it will be a String (could be sql, tablename, name, schema type)
-*
-* */
-
-#[derive(Debug)]
-pub enum RecordDataType {
-    STR(String),
-    INT8(i8),
-    INT16(i16),
-    INT32(i32),
-    INT64(i64),
-    FLOAT(f64),
-    BLOB(Box<[u8]>),
-    NULL,
-}
-
-impl Into<String> for &RecordDataType {
-    fn into(self) -> String {
-        match self {
-            RecordDataType::STR(str) => str.to_owned(),
-            _ => String::new(),
-        }
-    }
-}
-
-impl Into<Result<SchemaType, Box<dyn Error>>> for &RecordDataType {
-    fn into(self) -> Result<SchemaType, Box<dyn Error>> {
-        println!("{:?}", self);
-        let schema_type: SchemaType = match self {
-            RecordDataType::STR(str) => SchemaType::try_from(str.to_string())?,
-            _ => SchemaType::TABLE,
-        };
-
-        Ok(schema_type)
-    }
-}
-
-impl Into<i64> for &RecordDataType {
-    fn into(self) -> i64 {
-        match self {
-            RecordDataType::INT64(val) => val.to_owned(),
-            _ => 0,
-        }
-    }
-}
-
-impl Into<f64> for &RecordDataType {
-    fn into(self) -> f64 {
-        match self {
-            RecordDataType::FLOAT(val) => val.to_owned(),
-            _ => 0.0,
-        }
-    }
-}
-
-impl Into<u32> for &RecordDataType {
-    fn into(self) -> u32 {
-        match self {
-            RecordDataType::INT8(val) => val.to_owned() as u32,
-            RecordDataType::INT16(val) => val.to_owned() as u32,
-            RecordDataType::INT32(val) => val.to_owned() as u32,
-            _ => 0,
-        }
-    }
-}
 
 fn parse_non_prim_int(buf: &[u8], size: u8) -> RecordDataType {
     let mut msb = 0x00;
@@ -188,7 +110,8 @@ pub trait Schema {
                 RecordDataType::FLOAT(val)
             }
             10..=11 => RecordDataType::NULL,
-            8 | 9 | 12 | 13 => RecordDataType::INT8(0),
+            8 | 12 | 13 => RecordDataType::INT8(0),
+            9 => RecordDataType::INT8(1),
             _ => {
                 if stype > 12 && (stype % 2) == 0 {
                     let blob = Box::from(buf);
@@ -228,8 +151,6 @@ pub trait Schema {
             stype_with_content_size.push((stype, content_size));
             cur_col += stype_varint_size as u64;
         }
-
-        println!("\n{:?}", stype_with_content_size);
 
         let mut schema_content: Vec<RecordDataType> = vec![];
         for (stype, content_size) in stype_with_content_size {
@@ -288,7 +209,6 @@ impl RootSchema for Root {
     ) -> Result<Self::SchemaType, Box<dyn Error>> {
         let schema_content = self.read_content(enc_val, payload)?;
 
-        println!("schema type in record format: {:?}", schema_content.get(0));
         let schema_type: SchemaType = if let Some(res) = schema_content.get(0) {
             let schema_type_result: Result<SchemaType, Box<dyn Error>> = res.into();
             schema_type_result?

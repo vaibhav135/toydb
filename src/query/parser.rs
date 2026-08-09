@@ -5,6 +5,7 @@ use crate::{
     query::common::{
         ColType, CreateParsedQuery, ParsedQueryResult, QueryClause, QueryType, SelectParsedQuery,
     },
+    record_type::RecordDataType,
 };
 
 trait QueryParserInner {
@@ -22,7 +23,7 @@ trait QueryParserInner {
         let mut field_name = String::from("");
 
         if col_start_idx == col_end_idx {
-            let elem = self.filter_delim(cols[0].to_string());
+            let elem = self.filter_delim(col_tokens[0].to_string());
 
             let mut colname;
 
@@ -119,6 +120,18 @@ trait QueryParserInner {
         &self,
         query_tokens: Vec<String>,
     ) -> Result<SelectParsedQuery, Box<dyn Error>>;
+
+    // ------------ WHERE CLAUSE -------------------------------
+
+    fn get_where_clause_key_and_val(
+        &self,
+        tokens: Vec<String>,
+    ) -> Result<(String, String), Box<dyn Error>>;
+
+    fn parse_where_clause(
+        &self,
+        query_tokens: Vec<String>,
+    ) -> Result<Option<(String, RecordDataType)>, Box<dyn Error>>;
 }
 
 #[allow(private_bounds)]
@@ -127,6 +140,124 @@ pub trait QueryParser: QueryParserInner {
 }
 
 impl QueryParserInner for ParsedQueryResult {
+    fn get_where_clause_key_and_val(
+        &self,
+        tokens: Vec<String>,
+    ) -> Result<(String, String), Box<dyn Error>> {
+        let mut val_tokens: Vec<String> = vec![];
+        let mut prev_quotes = String::new();
+        let mut key = String::new();
+        let mut value = String::new();
+
+        let quote_remove = |idx: usize,
+                            curr_quote: String,
+                            prev_quote: &mut String,
+                            values: &mut Vec<String>|
+         -> Result<(), Box<dyn Error>> {
+            if prev_quote.is_empty() {
+                *prev_quote = curr_quote;
+                values.push(tokens[idx].replace(&*prev_quote, "").to_string());
+            } else if *prev_quote == curr_quote {
+                values.push(tokens[idx].replace(&*prev_quote, "").to_string());
+                *prev_quote = String::from("");
+            } else if curr_quote.is_empty() && !prev_quote.is_empty() {
+                values.push(tokens[idx].to_string());
+            } else if *prev_quote != curr_quote {
+                return Err(format!("Invalid quoting in where clause").into());
+            }
+
+            Ok(())
+        };
+
+        for (idx, token) in tokens.iter().enumerate() {
+            let mut cur_quotes = String::from("");
+            if token.contains("\"") {
+                cur_quotes = "\"".to_string();
+            } else if token.contains("'") {
+                cur_quotes = "'".to_string();
+            }
+
+            if !prev_quotes.is_empty() || (prev_quotes.is_empty() && !cur_quotes.is_empty()) {
+                quote_remove(idx, cur_quotes, &mut prev_quotes, &mut val_tokens)?;
+            }
+
+            if token.contains("=") && idx > 0 {
+                key = tokens[idx - 1].to_string();
+            }
+        }
+
+        if val_tokens.is_empty() {
+            return Err(format!("Please add quotes after your equal operator").into());
+        }
+
+        for token in val_tokens {
+            let mut tempval = token.as_str();
+
+            if token.contains("=") {
+                let equality_tok_split: Vec<&str> =
+                    token.split("=").filter(|val| !val.is_empty()).collect();
+
+                if equality_tok_split.len() > 1 {
+                    tempval = equality_tok_split[1];
+                    key = equality_tok_split[0].to_string();
+                } else {
+                    tempval = equality_tok_split[0];
+                }
+            }
+
+            if token.contains(";") {
+                let semicolon_tok_split: Vec<&str> =
+                    tempval.split(";").filter(|val| !val.is_empty()).collect();
+
+                if semicolon_tok_split.len() >= 1 {
+                    tempval = semicolon_tok_split[0];
+                }
+            }
+
+            if value.is_empty() {
+                value = tempval.to_string();
+            } else {
+                value = value + " " + tempval;
+            }
+        }
+
+        Ok((key, value))
+    }
+
+    fn parse_where_clause(
+        &self,
+        query_tokens: Vec<String>,
+    ) -> Result<Option<(String, RecordDataType)>, Box<dyn Error>> {
+        let where_pos = query_tokens
+            .iter()
+            .position(|token| token.to_lowercase() == "where");
+
+        println!("\nwhere pos: {:?}\n", where_pos);
+        if where_pos.is_some() && query_tokens.len() - 1 > where_pos.unwrap() {
+            let rest_tokens = query_tokens[where_pos.unwrap() + 1..].to_vec();
+            println!("rest tokens: {:?}\n", rest_tokens);
+
+            if let Some(equality_pos) = rest_tokens.iter().position(|token| token.contains("=")) {
+                if rest_tokens.len() - 1 >= equality_pos {
+                    let (field, val) = self.get_where_clause_key_and_val(rest_tokens)?;
+                    let record_value = RecordDataType::convert_str_to_recordformat(val.to_string());
+
+                    return Ok(Some((field, record_value)));
+                } else {
+                    return Err(format!("Error: Invalid where clause in select query").into());
+                }
+            } else {
+                return Err(format!(
+                    "Error: currently we only support simple equality comparison query like:\n
+                     select * from your_tbl where xyz='something'"
+                )
+                .into());
+            }
+        }
+
+        Ok(None)
+    }
+
     fn handle_select_query(
         &self,
         query_tokens: Vec<String>,
@@ -160,9 +291,12 @@ impl QueryParserInner for ParsedQueryResult {
                 self.filter_delim(query_tokens[from_pos.unwrap() + 1].to_owned())[0].to_string();
         }
 
+        let where_clause = self.parse_where_clause(query_tokens)?;
+
         Ok(SelectParsedQuery {
             tblname,
             output_fields,
+            where_clause,
         })
     }
 

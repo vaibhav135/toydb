@@ -1,6 +1,6 @@
 use std::{error::Error, fmt, str::FromStr};
 
-use crate::btree::Root;
+use crate::btree::{Root, SchemaType};
 
 #[derive(Debug)]
 pub enum Commands {
@@ -53,7 +53,11 @@ impl Commands {
                 println!("number of tables: {num_of_tables}");
             }
             Commands::Tables => {
-                tables.values().for_each(|val| println!("{}", val.tbl_name));
+                tables
+                    .values()
+                    .flatten()
+                    .filter(|schema| schema.schema_type == SchemaType::TABLE)
+                    .for_each(|schema| println!("{}", schema.tbl_name));
             }
         }
 

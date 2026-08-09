@@ -25,7 +25,7 @@ impl Initialize for Root {
         let dbheader_bytes = read_specific_bytes(&fileinfo.filepath, 0, 99)?;
         let dbheader = self.read_db_header(&dbheader_bytes);
 
-        let mut tables: HashMap<String, SqlSchema> = HashMap::new();
+        let mut tables: HashMap<String, Vec<SqlSchema>> = HashMap::new();
 
         let mut rootpg_list: Vec<RootPage> = vec![];
 
