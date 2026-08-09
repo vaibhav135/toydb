@@ -116,8 +116,6 @@ impl Root {
         rootpg_list: &mut Vec<RootPage>,
         tables: &mut HashMap<String, Vec<SqlSchema>>,
     ) -> Result<(), Box<dyn Error>> {
-        println!("\npg no: {pgno}");
-
         let pgsize = dbheader.page_size;
         let pgoffset = if pgno > 0 {
             (pgno - 1) as u32 * pgsize as u32
@@ -136,7 +134,6 @@ impl Root {
 
         match pgdata {
             RootPayload::InteriorTable(payload) => {
-                // println!("interior table: {:?}", payload);
                 for (idx, item) in payload.iter().enumerate() {
                     self.read_root_data(
                         0,

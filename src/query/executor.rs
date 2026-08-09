@@ -45,8 +45,6 @@ impl QueryExecutor {
             ParsedQueryResult::SELECT(select_parsed_query) => {
                 let schema_list = root.tables.get(&select_parsed_query.tblname);
 
-                println!("Selected parsed query: {:?}", select_parsed_query);
-
                 if schema_list.is_some() {
                     let tblpos = schema_list
                         .unwrap()
@@ -78,8 +76,6 @@ impl QueryExecutor {
                         &qparser,
                     )?;
 
-                    println!("{:?}", idxrows);
-                    println!("cur table: {:?}", cur_table);
                     let mut tbl_queryop = QueryOperations::GetAll;
 
                     if idxrows.total_rows > 0 {
@@ -106,13 +102,6 @@ impl QueryExecutor {
                 } else {
                     return Err(format!("table not found!!! please type a valid table name").into());
                 }
-
-                // println!("query: {}", self.query);
-                // root.tables.values().for_each(|val| {
-                //     println!("sql: {}", val.sql);
-                //     println!("rootpg: {}", val.rootpg);
-                // });
-                // println!("cur table: {:?}", cur_table);
 
                 Ok(())
             }
@@ -205,6 +194,7 @@ impl QueryExecutor {
             })
             .collect::<Vec<String>>();
 
+        println!("\n\n");
         for field in user_output_cols {
             print!("{field} | ");
         }

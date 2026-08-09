@@ -4,7 +4,7 @@
 *     doc on sqlite limits -> https://sqlite.org/limits.html
 *
 * */
-use std::{error::Error, ops::Deref};
+use std::error::Error;
 
 use crate::{
     btree::{
@@ -139,14 +139,11 @@ impl Child {
         match pgdata {
             ChildPayload::LeafTablePayload(leafpayload) => match queryop {
                 QueryOperations::SearchByID(id) => {
-                    println!("\n\n{:?}\n\n", leafpayload);
-                    println!("\n\npgno: {pgno}\n\nIN leaf page: {}", id);
                     let res: Option<LeafPayload> =
                         leaf_binsearch!(leafpayload, id.to_owned(), u64, |p: &LeafPayload| p
                             .rowid
                             .unwrap());
 
-                    println!("res: {:?}", res);
                     if let Some(data) = res {
                         tablerow.rows.push((data.rowid, data.row));
                     }
@@ -231,12 +228,6 @@ impl Child {
         let pgsize = dbheader.page_size;
         let pgoffset = (pgno - 1) * pgsize as u32;
 
-        // println!("pgsize: {}", pgsize);
-        println!("pgno: {}", pgno);
-        println!("in child: {}", pgoffset);
-        println!("indexrow: {:?}", indexrow);
-        println!("queryop: {:?}", queryop);
-
         let (pgheader, cells) = self.read_page(filepath, dbheader, 0, pgoffset)?;
 
         let pgdata = self.get_pgdata(&dbheader, &pgheader, &cells)?;
@@ -255,9 +246,7 @@ impl Child {
             },
             ChildPayload::InteriorIndexPayload(payload) => match queryop {
                 QueryOperations::IdxSearchByVal(data) => {
-                    println!("\n\npayload: {:?}\n\n", &payload);
                     let pgptr = interior_idx_binsearch_by_val(payload, data.to_owned());
-                    println!("\n\npgptr: {}", pgptr);
                     self.get_child_indices(filepath, dbheader, pgptr, schema, indexrow, queryop);
                     Ok(indexrow.clone())
                 }

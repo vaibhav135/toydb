@@ -19,11 +19,11 @@ fn parse_non_prim_int(buf: &[u8], size: u8) -> RecordDataType {
     match size {
         24 => {
             let new_buf = [msb, buf[0], buf[1], buf[2]];
-            RecordDataType::INT32(parse_be_byte_to_int!(buf, 0, i32))
+            RecordDataType::INT32(parse_be_byte_to_int!(new_buf, 0, i32))
         }
         _ => {
             let new_buf = [msb, msb, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]];
-            RecordDataType::INT64(parse_be_byte_to_int!(buf, 0, i64))
+            RecordDataType::INT64(parse_be_byte_to_int!(new_buf, 0, i64))
         }
     }
 }

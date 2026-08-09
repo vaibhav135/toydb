@@ -232,10 +232,8 @@ impl QueryParserInner for ParsedQueryResult {
             .iter()
             .position(|token| token.to_lowercase() == "where");
 
-        println!("\nwhere pos: {:?}\n", where_pos);
         if where_pos.is_some() && query_tokens.len() - 1 > where_pos.unwrap() {
             let rest_tokens = query_tokens[where_pos.unwrap() + 1..].to_vec();
-            println!("rest tokens: {:?}\n", rest_tokens);
 
             if let Some(equality_pos) = rest_tokens.iter().position(|token| token.contains("=")) {
                 if rest_tokens.len() - 1 >= equality_pos {
