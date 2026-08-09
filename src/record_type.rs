@@ -1,4 +1,5 @@
-use std::{error::Error, ops::Deref};
+// #[allow(unused)]
+use std::error::Error;
 
 use crate::btree::SchemaType;
 

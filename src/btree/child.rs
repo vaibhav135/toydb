@@ -181,7 +181,7 @@ impl Child {
                             return Err(format!("Invalid db file!!!").into());
                         };
 
-                        self.get_child_data(filepath, dbheader, pgptr, schema, tablerow, queryop);
+                        self.get_child_data(filepath, dbheader, pgptr, schema, tablerow, queryop)?;
 
                         Ok(tablerow.clone())
                     }
@@ -247,7 +247,7 @@ impl Child {
             ChildPayload::InteriorIndexPayload(payload) => match queryop {
                 QueryOperations::IdxSearchByVal(data) => {
                     let pgptr = interior_idx_binsearch_by_val(payload, data.to_owned());
-                    self.get_child_indices(filepath, dbheader, pgptr, schema, indexrow, queryop);
+                    self.get_child_indices(filepath, dbheader, pgptr, schema, indexrow, queryop)?;
                     Ok(indexrow.clone())
                 }
                 _ => Err(format!("Internal Error: Invalid query operation!!!").into()),
