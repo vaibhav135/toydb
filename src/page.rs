@@ -221,10 +221,8 @@ pub trait Page {
                 interior_payload.push(InteriorTablePayload {
                     leftptr: leftptr,
 
-                    // Since the cell is going from desc to asce, the first key
-                    // will have the rightmost ptr.
-                    rightptr: if idx > 0 {
-                        cells[idx - 1]
+                    rightptr: if idx < cells.len() - 1 {
+                        cells[idx + 1]
                             .pgnum_of_left_child
                             .expect("for a key that exists will have a ptr")
                     } else {
@@ -307,10 +305,8 @@ impl Page for Child {
                 if let Some(leftptr) = cell.pgnum_of_left_child {
                     payload.push(InteriorIndexPayload {
                         leftptr: leftptr,
-                        // Since the cell is going from desc to asce, the first key
-                        // will have the rightmost ptr.
-                        rightptr: if idx > 0 {
-                            cells[idx - 1]
+                        rightptr: if idx < cells.len() - 1 {
+                            cells[idx + 1]
                                 .pgnum_of_left_child
                                 .expect("for a key that exists will have a ptr")
                         } else {
@@ -333,19 +329,17 @@ impl Page for Child {
                         .expect("payload is set for all the btree  pages except interior table"),
                 )?;
 
-                if cell.rowid.is_some() {
-                    leaftable_payload.push(LeafPayload {
-                        rowid: cell.rowid,
-                        row: data,
-                    });
-                }
+                leaftable_payload.push(LeafPayload {
+                    rowid: cell.rowid,
+                    row: data,
+                });
             }
 
             if pgheader.btree_pgtype == BTreePageHeaderFormat::LeafTableBTreePage {
                 return Ok(ChildPayload::LeafTablePayload(leaftable_payload));
             }
 
-            Ok(ChildPayload::LeafIndexPayload(leaftable_payload))
+            return Ok(ChildPayload::LeafIndexPayload(leaftable_payload));
         }
     }
 }

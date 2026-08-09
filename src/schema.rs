@@ -110,7 +110,8 @@ pub trait Schema {
                 RecordDataType::FLOAT(val)
             }
             10..=11 => RecordDataType::NULL,
-            8 | 9 | 12 | 13 => RecordDataType::INT8(0),
+            8 | 12 | 13 => RecordDataType::INT8(0),
+            9 => RecordDataType::INT8(1),
             _ => {
                 if stype > 12 && (stype % 2) == 0 {
                     let blob = Box::from(buf);

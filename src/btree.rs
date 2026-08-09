@@ -15,13 +15,6 @@ use crate::record_type::{RecordDataType, convert_from_record_format_to};
 /***
 *  Return the ptr to the page where the data holding the key (key can be -:
 *  rowid, or a indexed value) might be.
-*  The order will be reversed btw. Since cells are stored in a way they
-*  grow towards the freeblock, so left to right will be in decresing order.
-*  Another thing for each element left to right. Support there are keys A, B, C
-*  , D for A's left ptr will be B's right ptr so on and so forth.
-*
-*  My brain got fried trying to make sense of it. I know it's not really that complex,
-*  but the issue is that it's reversed.
 *
 *  NOTE: The way I have implemented this is very naiive but it's ok, we'll refactor
 *  it in the future to make it more effiecient.
@@ -41,7 +34,7 @@ macro_rules! interior_binsearch {
 
                 // they both will be equal when only 1 element is left
                 if high == low {
-                    if ($accessor)(cur_elem) >= $seek {
+                    if $seek <= ($accessor)(cur_elem) {
                         return cur_elem.leftptr;
                     } else {
                         return cur_elem.rightptr;
@@ -49,29 +42,28 @@ macro_rules! interior_binsearch {
                 }
 
                 if $seek > ($accessor)(cur_elem) {
-                    if mid == low {
-                        high = mid;
-                    }
-                    // everything left of the cur key must be discarded.
-                    else if $seek <= ($accessor)(&$payload[(mid - 1) as usize]) {
-                        return cur_elem.rightptr;
-                    } else {
-                        high = mid - 1;
-                    }
-                } else {
-                    // when $seek <= cur_elem.key. Everything right of cur key is discarded
-                    if ($accessor)(cur_elem) == $seek {
-                        return cur_elem.leftptr;
-                    } else if mid + 1 <= total_len {
-                        if $seek > ($accessor)(&$payload[(mid + 1) as usize]) {
-                            return cur_elem.leftptr;
-                        } else if $seek == ($accessor)(&$payload[(mid + 1) as usize]) {
-                            return $payload[mid_usize + 1].leftptr;
+                    if mid + 1 >= total_len {
+                        if $seek <= ($accessor)(&$payload[(mid + 1) as usize]) {
+                            return cur_elem.rightptr;
                         } else {
                             low = mid + 1;
                         }
                     } else {
                         low = mid;
+                    }
+                } else {
+                    if ($accessor)(cur_elem) == $seek {
+                        return cur_elem.leftptr;
+                    } else if mid - 1 >= 0 {
+                        if $seek > ($accessor)(&$payload[(mid - 1) as usize]) {
+                            return cur_elem.leftptr;
+                        } else if $seek == ($accessor)(&$payload[(mid - 1) as usize]) {
+                            return $payload[mid_usize - 1].leftptr;
+                        } else {
+                            high = mid - 1;
+                        }
+                    } else {
+                        high = mid;
                     }
                 }
             }
@@ -86,27 +78,31 @@ macro_rules! interior_binsearch {
 #[macro_export]
 macro_rules! leaf_binsearch {
     ($payload: expr, $seek: expr, $type: ty, $accessor: expr) => {{
-        let mut low = 0;
-        let mut high = $payload.len() as isize - 1;
+        let _leaf_binsearch = || {
+            let mut low = 0;
+            let mut high = $payload.len() as isize - 1;
 
-        while low <= high {
-            let mid = low + (high - low) / 2;
+            while low <= high {
+                let mid = low + (high - low) / 2;
 
-            let mid_usize = mid as usize;
+                let mid_usize = mid as usize;
 
-            // First val is the indexed field, second is the rowid
-            let idx_val: $type = ($accessor)(&$payload[mid_usize].clone().into());
+                // First val is the indexed field, second is the rowid
+                let idx_val: $type = ($accessor)(&$payload[mid_usize].clone().into());
 
-            if idx_val == $seek {
-                Some($payload[mid_usize].clone());
-            } else if idx_val < $seek {
-                high = mid - 1; // Discard right half
-            } else {
-                low = mid + 1; // Discard left half
+                if idx_val == $seek {
+                    return Some($payload[mid_usize].clone());
+                } else if idx_val < $seek {
+                    low = mid + 1; // Discard left half
+                } else {
+                    high = mid - 1; // Discard right half
+                }
             }
-        }
 
-        None
+            None
+        };
+
+        _leaf_binsearch()
     }};
 }
 
@@ -126,6 +122,7 @@ pub fn leaf_idx_binsearch_by_val(
             |p: &LeafPayload| convert_from_record_format_to!(&p.row[0], u64)
         );
     } else if RecordDataType::is_record_string(&seek) {
+        println!("\nI am inside the string one....\n\n");
         let seek_str: String = (&seek).into();
         return leaf_binsearch!(
             payload,
@@ -193,44 +190,9 @@ mod binsearch_tests {
     fn test_interior_tbl_binsearch() {
         let payloads = vec![
             InteriorTablePayload {
-                leftptr: 109,
-                rightptr: 110,
-                key: 950,
-            },
-            InteriorTablePayload {
-                leftptr: 108,
-                rightptr: 109,
-                key: 840,
-            },
-            InteriorTablePayload {
-                leftptr: 107,
-                rightptr: 108,
-                key: 730,
-            },
-            InteriorTablePayload {
-                leftptr: 106,
-                rightptr: 107,
-                key: 620,
-            },
-            InteriorTablePayload {
-                leftptr: 105,
-                rightptr: 106,
-                key: 510,
-            },
-            InteriorTablePayload {
-                leftptr: 104,
-                rightptr: 105,
-                key: 400,
-            },
-            InteriorTablePayload {
-                leftptr: 103,
-                rightptr: 104,
-                key: 300,
-            },
-            InteriorTablePayload {
-                leftptr: 102,
-                rightptr: 103,
-                key: 200,
+                leftptr: 100,
+                rightptr: 101,
+                key: 25,
             },
             InteriorTablePayload {
                 leftptr: 101,
@@ -238,13 +200,49 @@ mod binsearch_tests {
                 key: 100,
             },
             InteriorTablePayload {
-                leftptr: 100,
-                rightptr: 101,
-                key: 25,
+                leftptr: 102,
+                rightptr: 103,
+                key: 200,
+            },
+            InteriorTablePayload {
+                leftptr: 103,
+                rightptr: 104,
+                key: 300,
+            },
+            InteriorTablePayload {
+                leftptr: 104,
+                rightptr: 105,
+                key: 400,
+            },
+            InteriorTablePayload {
+                leftptr: 105,
+                rightptr: 106,
+                key: 510,
+            },
+            InteriorTablePayload {
+                leftptr: 106,
+                rightptr: 107,
+                key: 620,
+            },
+            InteriorTablePayload {
+                leftptr: 107,
+                rightptr: 108,
+                key: 730,
+            },
+            InteriorTablePayload {
+                leftptr: 108,
+                rightptr: 109,
+                key: 840,
+            },
+            InteriorTablePayload {
+                leftptr: 109,
+                rightptr: 110,
+                key: 950,
             },
         ];
 
-        let arr_id_and_res: Vec<(u64, u32)> = vec![
+        let arr_id_and_res = vec![
+            (0, 100),
             (25, 100),
             (26, 101),
             (50, 101),
@@ -260,7 +258,6 @@ mod binsearch_tests {
             (950, 109),
             (951, 110),
         ];
-
         for (id, expected_res) in arr_id_and_res {
             let res = interior_binsearch!(payloads, id, |p: &InteriorTablePayload| p.key);
 

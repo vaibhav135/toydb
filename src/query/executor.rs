@@ -79,6 +79,7 @@ impl QueryExecutor {
                     )?;
 
                     println!("{:?}", idxrows);
+                    println!("cur table: {:?}", cur_table);
                     let mut tbl_queryop = QueryOperations::GetAll;
 
                     if idxrows.total_rows > 0 {
@@ -94,13 +95,13 @@ impl QueryExecutor {
                             .get_orig_cols(&qparser, cur_table.sql.to_string())?
                             .cols;
 
-                        // if select_fields.len() == 1 && select_fields[0] == "*" {
-                        //     self.printrows(&orig_cols, total_qexec_time, tablerow, &orig_cols);
-                        // } else {
-                        //     self.validate_output_fields(&select_fields, &orig_cols)?;
-                        //
-                        //     self.printrows(&select_fields, total_qexec_time, tablerow, &orig_cols);
-                        // }
+                        if select_fields.len() == 1 && select_fields[0] == "*" {
+                            self.printrows(&orig_cols, total_qexec_time, tablerow, &orig_cols);
+                        } else {
+                            self.validate_output_fields(&select_fields, &orig_cols)?;
+
+                            self.printrows(&select_fields, total_qexec_time, tablerow, &orig_cols);
+                        }
                     }
                 } else {
                     return Err(format!("table not found!!! please type a valid table name").into());
