@@ -234,10 +234,10 @@ impl QueryExecutor {
                     }
                 }
             }
-            println!("\n\n");
+            println!("\n");
         }
 
         println!("Total rows: {}", tablerow.total_rows);
-        println!("Total execution time: {:?}", qexec_time);
+        println!("Total execution time: {:?}\n\n", qexec_time);
     }
 }
