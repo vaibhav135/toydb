@@ -131,6 +131,10 @@ src/
 
 - [SQLite file format](https://www.sqlite.org/fileformat2.html)
 - [SQLite B-tree pages](https://www.sqlite.org/fileformat.html#b_tree_pages)
+- [SQLite Internals: B-trees](https://fly.io/blog/sqlite-internals-btree/)
+- [Exploring SQLite Internals](https://www.bswanson.dev/blog/exploring-sqlite-internals/)
+- [SQLite representation visualizer](https://torymur.github.io/sqlite-repr)
+- [SQLite internals visual guide](https://sqlite-internal.pages.dev)
 - [SQLite limits](https://sqlite.org/limits.html)
 
 This project is for educational purposes.
