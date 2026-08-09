@@ -122,7 +122,6 @@ pub fn leaf_idx_binsearch_by_val(
             |p: &LeafPayload| convert_from_record_format_to!(&p.row[0], u64)
         );
     } else if RecordDataType::is_record_string(&seek) {
-        println!("\nI am inside the string one....\n\n");
         let seek_str: String = (&seek).into();
         return leaf_binsearch!(
             payload,

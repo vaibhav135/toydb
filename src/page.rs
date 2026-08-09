@@ -70,8 +70,6 @@ pub trait Page {
         // This is the first element of the page header size: 1 byte, offset: 0
         let btree_pgtype = self.get_btree_page_type(buf[0])?;
 
-        println!("pagetype: {:?}", btree_pgtype);
-
         let first_freeblock_start = parse_be_byte_to_int!(buf, 1, u16);
 
         let num_of_cells = parse_be_byte_to_int!(buf, 3, u16);
@@ -112,8 +110,6 @@ pub trait Page {
             &buf[pgheader.pgheader_size as usize..],
         );
         let mut cells = vec![];
-
-        // println!("{:?}\n", cellptr_arr);
 
         for cellptr in cellptr_arr {
             let mut cell = Cell::new();
@@ -179,11 +175,6 @@ pub trait Page {
         // Start offset is relative to it's own size. This is 100 for 1st page (since we have db
         // header) for rest it will be 0.
     ) -> Result<(PageHeader, Vec<Cell>), Box<dyn Error>> {
-        // println!(
-        //     "\nfilepath: {}\ndb header: {:?}\npage offset: {}\n",
-        //     filepath, dbheader, pgoffset
-        // );
-
         let pgsize = dbheader.page_size;
         let buf_size = if start_offset > 0 && start_offset < pgsize {
             pgsize - start_offset
@@ -196,8 +187,6 @@ pub trait Page {
         let pgheader = self.read_pgheader(&page_raw_bytes)?;
 
         let mut cells = self.get_pgcells(&pgheader, &dbheader, &page_raw_bytes, start_offset);
-
-        // println!("{:?}\n", cells);
 
         if pgheader.btree_pgtype != BTreePageHeaderFormat::InteriorTableBTreePage {
             self.set_payload_overflow_bytes(filepath, &mut cells, pgsize)?;
