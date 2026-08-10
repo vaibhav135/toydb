@@ -109,6 +109,42 @@ macro_rules! leaf_binsearch {
 pub(super) use super::interior_binsearch;
 pub(super) use super::leaf_binsearch;
 
+pub fn leaf_tbl_binsearch_by_val(
+    payload: Vec<LeafPayload>,
+    seek: RecordDataType,
+    col_idx: usize,
+) -> Option<LeafPayload> {
+    if RecordDataType::is_record_int(&seek) {
+        let seek_int: u64 = seek.into();
+        return leaf_binsearch!(
+            payload,
+            seek_int,
+            u64,
+            |p: &LeafPayload| convert_from_record_format_to!(&p.row[col_idx], u64)
+        );
+    } else if RecordDataType::is_record_string(&seek) {
+        let seek_str: String = (&seek).into();
+        return leaf_binsearch!(
+            payload,
+            seek_str,
+            String,
+            |p: &LeafPayload| convert_from_record_format_to!(&p.row[col_idx], String)
+        );
+    } else if RecordDataType::is_record_float(&seek) {
+        let seek_float: f64 = seek.into();
+        return leaf_binsearch!(
+            payload,
+            seek_float,
+            f64,
+            |p: &LeafPayload| convert_from_record_format_to!(&p.row[col_idx], f64)
+        );
+    }
+
+    None
+}
+
+// For indexes, the first index is the one that is indexed from the table schema.
+// That is the reason why we are comparing with pos 0.
 pub fn leaf_idx_binsearch_by_val(
     payload: Vec<LeafPayload>,
     seek: RecordDataType,

@@ -20,7 +20,7 @@ use crate::btree::SchemaType;
 *
 * */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecordDataType {
     STR(String),
     INT8(i8),
