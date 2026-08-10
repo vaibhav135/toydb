@@ -10,6 +10,7 @@ use crate::{
     btree::{
         DBHeader, InteriorTablePayload, SchemaType, SqlSchema, interior_binsearch,
         interior_idx_binsearch_by_val, leaf_binsearch, leaf_idx_binsearch_by_val,
+        leaf_tbl_binsearch_by_val,
     },
     page::{Page, PageHeader},
     query::QueryOperations,
@@ -129,6 +130,10 @@ impl Child {
         tablerow: &mut TableRow,
         queryop: &QueryOperations,
     ) -> Result<TableRow, Box<dyn Error>> {
+        if QueryOperations::Empty == *queryop {
+            return Ok(TableRow::default());
+        }
+
         let pgsize = dbheader.page_size;
         let pgoffset = (pgno - 1) * pgsize as u32;
 
@@ -146,6 +151,23 @@ impl Child {
 
                     if let Some(data) = res {
                         tablerow.rows.push((data.rowid, data.row));
+                        tablerow.total_rows += 1;
+                    }
+
+                    Ok(tablerow.clone())
+                }
+
+                QueryOperations::FullTableScanSearch(col_idx, seek_record) => {
+                    // let res: Option<LeafPayload> =
+                    let res = leaf_tbl_binsearch_by_val(
+                        leafpayload,
+                        seek_record.to_owned(),
+                        col_idx.to_owned(),
+                    );
+
+                    if let Some(data) = res {
+                        tablerow.rows.push((data.rowid, data.row));
+                        tablerow.total_rows += 1;
                     }
 
                     Ok(tablerow.clone())
@@ -182,6 +204,29 @@ impl Child {
                         };
 
                         self.get_child_data(filepath, dbheader, pgptr, schema, tablerow, queryop)?;
+
+                        Ok(tablerow.clone())
+                    }
+                    QueryOperations::FullTableScanSearch(_, _) => {
+                        for (idx, payload) in interior_payload.iter().enumerate() {
+                            let nxtpgno = payload.leftptr;
+
+                            self.get_child_data(
+                                filepath, dbheader, nxtpgno, schema, tablerow, queryop,
+                            )?;
+
+                            if idx == interior_payload.len() - 1 {
+                                // This is for the rightmost ptr.
+                                self.get_child_data(
+                                    filepath,
+                                    dbheader,
+                                    payload.rightptr,
+                                    schema,
+                                    tablerow,
+                                    queryop,
+                                )?;
+                            }
+                        }
 
                         Ok(tablerow.clone())
                     }

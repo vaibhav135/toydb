@@ -12,7 +12,7 @@ use crate::{
     record_type::RecordDataType,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum QueryOperations {
     GetAll,
     SearchByID(u64),
@@ -20,6 +20,12 @@ pub enum QueryOperations {
     // In case of indexing the indexed val, will be the first one and then the row id will be the
     // second in interior or leaf index btree page.
     IdxSearchByVal(RecordDataType),
+
+    // This is the case when the field is not indexed.
+    // First is the col idx for which we are trying to find the data.
+    // Second is the cold value we want to match.
+    FullTableScanSearch(usize, RecordDataType),
+    Empty,
 }
 
 #[derive(Debug)]
@@ -57,46 +63,39 @@ impl QueryExecutor {
                         );
                     }
 
-                    let idxpos = schema_list
-                        .unwrap()
-                        .iter()
-                        .position(|tbl| tbl.schema_type == SchemaType::INDEX);
-
-                    let select_fields = &select_parsed_query.output_fields;
-                    let cur_table = &schema_list.unwrap()[tblpos.unwrap()];
+                    let cols_to_print = &select_parsed_query.output_fields;
+                    let tbl_schema = &schema_list.unwrap()[tblpos.unwrap()];
 
                     let childnode = Child::default();
 
-                    let idxrows = self.get_idx_rows(
+                    let mut queryop = QueryOperations::GetAll;
+
+                    // Set the query operation here for the table leaf to get the righ data.
+                    self.handle_where_clause(
                         &childnode,
-                        idxpos,
+                        &tbl_schema,
                         &schema_list.unwrap(),
                         &select_parsed_query,
                         dbheader,
                         &qparser,
+                        &mut queryop,
                     )?;
 
-                    let mut tbl_queryop = QueryOperations::GetAll;
-
-                    if idxrows.total_rows > 0 {
-                        tbl_queryop = QueryOperations::SearchByID(idxrows.rows[0]);
-                    }
-
                     if let Row::TABLE(tablerow) =
-                        &childnode.get_rows(&self.filepath, dbheader, &cur_table, tbl_queryop)?
+                        &childnode.get_rows(&self.filepath, dbheader, &tbl_schema, queryop)?
                     {
                         let total_qexec_time = qstart_time.elapsed();
 
                         let orig_cols = self
-                            .get_orig_cols(&qparser, cur_table.sql.to_string())?
+                            .get_orig_cols(&qparser, tbl_schema.sql.to_string())?
                             .cols;
 
-                        if select_fields.len() == 1 && select_fields[0] == "*" {
+                        if cols_to_print.len() == 1 && cols_to_print[0] == "*" {
                             self.printrows(&orig_cols, total_qexec_time, tablerow, &orig_cols);
                         } else {
-                            self.validate_output_fields(&select_fields, &orig_cols)?;
+                            self.validate_output_fields(&cols_to_print, &orig_cols)?;
 
-                            self.printrows(&select_fields, total_qexec_time, tablerow, &orig_cols);
+                            self.printrows(&cols_to_print, total_qexec_time, tablerow, &orig_cols);
                         }
                     }
                 } else {
@@ -109,34 +108,105 @@ impl QueryExecutor {
         }
     }
 
-    fn get_idx_rows(
+    fn handle_where_clause(
         &self,
         childnode: &Child,
-        idxpos: Option<usize>,
+        tbl_schema: &SqlSchema,
         schema_list: &Vec<SqlSchema>,
         select_parsed_query: &SelectParsedQuery,
         dbheader: &DBHeader,
         qparser: &ParsedQueryResult,
+        queryop: &mut QueryOperations,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some((field, value)) = &select_parsed_query.where_clause {
+            // let is_schema_idx =
+            let create_index_schema_pos = schema_list
+                .iter()
+                .position(|tbl| tbl.schema_type == SchemaType::INDEX);
+
+            let is_indexed = create_index_schema_pos.is_some();
+
+            if is_indexed {
+                // This means the schema is indexed.
+                let idxrows = self.get_indexed_rows(
+                    create_index_schema_pos.unwrap(),
+                    childnode,
+                    schema_list,
+                    dbheader,
+                    qparser,
+                    field,
+                    value,
+                )?;
+
+                if idxrows.total_rows > 0 {
+                    *queryop = QueryOperations::SearchByID(idxrows.rows[0]);
+                } else {
+                    *queryop = QueryOperations::Empty;
+                }
+            } else {
+                // Incase the fields are not indexed
+                let (col_idx, seek) =
+                    self.get_idx_and_val_for_fss(tbl_schema, qparser, field, value)?;
+
+                *queryop = QueryOperations::FullTableScanSearch(col_idx, seek);
+            }
+        }
+
+        Ok(())
+    }
+
+    // fss = full scan search
+    fn get_idx_and_val_for_fss(
+        &self,
+        tblschema: &SqlSchema,
+        qparser: &ParsedQueryResult,
+        where_field: &String,
+        where_value: &RecordDataType,
+    ) -> Result<(usize, RecordDataType), Box<dyn Error>> {
+        // This is the create table query.
+        let orig_query = self.get_orig_cols(&qparser, tblschema.sql.to_string())?;
+        let field_pos = orig_query.cols.iter().position(|col| col == where_field);
+
+        if field_pos.is_some() {
+            return Ok((field_pos.unwrap(), where_value.to_owned()));
+        } else {
+            return Err(format!(
+                "Invalid field: this field isn't the part of the table you are querying for"
+            )
+            .into());
+        }
+    }
+
+    fn get_indexed_rows(
+        &self,
+        create_idx_schema_pos: usize,
+        childnode: &Child,
+        schema_list: &Vec<SqlSchema>,
+        dbheader: &DBHeader,
+        qparser: &ParsedQueryResult,
+        where_field: &String,
+        where_value: &RecordDataType,
     ) -> Result<IndexRow, Box<dyn Error>> {
         let mut idxrows = IndexRow::default();
+        let idx_schema = &schema_list[create_idx_schema_pos];
 
-        if let Some((field, value)) = &select_parsed_query.where_clause {
-            if let Some(pos) = idxpos {
-                let idx_schema = &schema_list[pos];
+        let create_idx_query = self.get_orig_cols(&qparser, idx_schema.sql.to_string())?;
 
-                let idx_query = self.get_orig_cols(&qparser, idx_schema.sql.to_string())?;
-
-                if idx_query.cols.contains(&field) {
-                    if let Row::INDEX(idx_row) = childnode.get_rows(
-                        &self.filepath,
-                        dbheader,
-                        &idx_schema,
-                        QueryOperations::IdxSearchByVal(value.to_owned()),
-                    )? {
-                        idxrows = idx_row;
-                    }
-                }
+        // Check if the field, for which we are doing the scan is valid.
+        if create_idx_query.cols.contains(&where_field) {
+            if let Row::INDEX(idx_row) = childnode.get_rows(
+                &self.filepath,
+                dbheader,
+                &idx_schema,
+                QueryOperations::IdxSearchByVal(where_value.to_owned()),
+            )? {
+                idxrows = idx_row;
             }
+        } else {
+            return Err(format!(
+                "Invalid field: this field isn't the part of the table you are querying for"
+            )
+            .into());
         }
 
         Ok(idxrows)
